@@ -26,11 +26,12 @@ Seed Trial Release is the current focus: ship a controlled Docker Compose server
 | T-014 | P0 | Done | Add admin knowledge upload for seed trial | Hidden `?admin=1` upload panel calls `/api/admin/knowledge/upload`, stores files under `knowledge/uploads/`, rebuilds the local index, and hot-reloads backend retrieval. |
 | T-015 | P0 | Done | Prepare seed server deployment docs | Documents seed-user trial deployment and keeps systemd/Nginx as a legacy fallback. |
 | T-016 | P0 | Done | Containerize seed deployment with GHCR, Docker Compose, and Caddy | Adds API/Web Dockerfiles, Compose, Caddy Basic Auth/HTTPS routing, GHCR publish workflow, and volume-backed uploads/exports. |
+| T-017 | P0 | Done | Prepare VPS Codex deployment handoff | Adds `docs/vps-codex-deployment-handoff.md` with a copy-paste Codex CLI prompt for image-only VPS deployment. |
 
 ## Immediate Next Steps
 
-1. Confirm GHCR package visibility and create a server-side `read:packages` token.
-2. Deploy `compose.seed.yml` plus `.env.caddy` to the target server using `docs/deployment.md`.
+1. Use `docs/vps-codex-deployment-handoff.md` to let Codex CLI on the VPS complete the image-only deployment.
+2. Confirm the deployed domain, seed/admin Basic Auth credentials, and HTTPS status.
 3. Upload 10-20 cleaned internal seed documents through `?admin=1`.
 4. Run seed-user interviews and collect whether the requirement-sheet/export workflow is worth paying for.
 5. Add LibreOffice/`soffice` later so DOCX visual rendering can run.

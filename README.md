@@ -118,6 +118,7 @@ npm run kb:verify
 ```
 
 For seed server deployment, see `docs/deployment.md`. For seed-user trial guidance, see `docs/seed-user-trial.md`.
+For a VPS-side Codex CLI handoff prompt, see `docs/vps-codex-deployment-handoff.md`.
 
 Build seed-trial containers locally:
 
@@ -142,6 +143,7 @@ docker compose -f compose.seed.yml build
 │   ├── export-payload-schema.md
 │   ├── deployment.md
 │   ├── seed-user-trial.md
+│   ├── vps-codex-deployment-handoff.md
 │   ├── tech-stack.md
 │   ├── roadmap.md
 │   ├── tasks.md

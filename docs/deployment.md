@@ -18,6 +18,8 @@ This is the recommended seed-user deployment path. The server does not clone or 
 
 This is still a controlled seed trial, not a production SaaS deployment.
 
+If a Codex CLI session will perform deployment directly on the VPS, use `docs/vps-codex-deployment-handoff.md` as the handoff prompt.
+
 ## Image Publishing
 
 Images are published by GitHub Actions in `.github/workflows/docker-publish.yml` when `main` is pushed.
