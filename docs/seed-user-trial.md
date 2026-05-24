@@ -67,7 +67,7 @@ Ask each seed user:
 
 ## Known Trial Limits
 
-- No formal login system; access is controlled by Nginx Basic Auth.
+- No formal login system; access is controlled by Caddy Basic Auth in the seed Docker Compose deployment.
 - No multi-tenant isolation.
 - Session state is in memory and can reset when the backend restarts.
 - The current agent is rule/mock driven, not a real LLM.

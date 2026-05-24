@@ -33,6 +33,17 @@ knowledge/*.md|txt|docx|pdf|xlsx|csv|tsv
   -> browser-side retrieval in mock mode OR backend-side retrieval in API mode
 ```
 
+Seed deployment:
+
+```text
+Seed user/admin
+  -> Caddy container with HTTPS + Basic Auth
+  -> static frontend from jfagent-web image
+  -> /api/* reverse proxy to private API container
+  -> jfagent-api image
+  -> Docker volumes for uploads and generated exports
+```
+
 The frontend now calls through `src/sessionApi.ts`, which defaults to `src/mockApi.ts` and can be switched to the backend API skeleton with `VITE_SESSION_API_MODE=backend`. In backend mode, `/api/session/chat` is responsible for returning `knowledge_hits`; the browser only renders the citations it receives.
 
 ## Target Architecture
@@ -96,6 +107,7 @@ Current behavior:
 - In-memory export asset registry and download route.
 - 402 payment-willingness gate for final export.
 - Free preview export response.
+- Container entrypoint rebuilds the runtime knowledge index on API startup so persisted uploads are available after image upgrades.
 
 The skeleton is verified by `npm run api:smoke`. The frontend can be run against it with `npm run dev:backend`.
 
@@ -229,6 +241,7 @@ In scope for the current MVP:
 - Local demo of user flow.
 - Local knowledge citation and retrieval.
 - Admin-only knowledge upload for controlled seed trials.
+- Docker Compose seed deployment with private GHCR images and Caddy Basic Auth.
 - Structured project field capture.
 - Manual override behavior.
 - Export value and willingness validation.
@@ -242,7 +255,7 @@ Out of scope until later phases:
 - True backend session authority.
 - High-fidelity Word/PDF rendering pipeline.
 - Production vector retrieval service and persistent vector database.
-- Application-level authentication and admin permissions beyond Nginx Basic Auth.
+- Application-level authentication and admin permissions beyond Caddy Basic Auth.
 - OCR/photo interpretation.
 - Legal-grade calculation guarantees.
 

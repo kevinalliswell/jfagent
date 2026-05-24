@@ -278,7 +278,7 @@ Consequences:
 
 ## D-016: Seed Trial Uses Nginx Basic Auth And Admin Upload
 
-Status: accepted.
+Status: superseded by D-017 for deployment; admin upload remains accepted.
 
 Decision:
 
@@ -295,3 +295,24 @@ Consequences:
 - `server/generatedKnowledge.json` is the backend runtime retrieval source in API mode.
 - Uploaded knowledge files are operational data and are ignored by git.
 - Production authentication, tenant isolation, document permissions, and persistent vector storage remain future work.
+
+## D-017: Seed Trial Deployment Uses GHCR Images, Docker Compose, And Caddy
+
+Status: accepted.
+
+Decision:
+
+Package the seed-trial app into two private GHCR images: `jfagent-api` for the Node/Python backend and `jfagent-web` for the Vite static frontend served by Caddy. Run them with `compose.seed.yml`; keep the API on the private Compose network and expose only the Caddy container on ports `80` and `443`. Caddy handles HTTPS, seed-user Basic Auth for the app and non-admin API routes, and separate admin Basic Auth for `/api/admin/`.
+
+Reason:
+
+The seed server should not clone or build the source repository. Private images keep deployment repeatable, make upgrades and rollbacks tag-based, and keep Caddy/HTTPS/auth configuration inside the same Compose boundary instead of relying on host Nginx/systemd setup.
+
+Consequences:
+
+- The server needs Docker, Compose, a GHCR read token, `compose.seed.yml`, and `.env.caddy`.
+- Uploaded knowledge files and generated exports persist in Docker named volumes.
+- API startup rebuilds the runtime knowledge index from baked-in seed files plus persisted uploads.
+- GitHub Actions becomes the image build and publish path.
+- Nginx/systemd deployment remains only a fallback for environments where Docker is unavailable.
+- This does not introduce production SaaS auth, tenant isolation, database persistence, or real billing.

@@ -1,0 +1,48 @@
+services:
+  api:
+    image: ${JFAGENT_API_IMAGE:-ghcr.io/kevinalliswell/jfagent-api:latest}
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      PYTHON_BIN: /opt/jfagent-venv/bin/python
+    volumes:
+      - jfagent_knowledge_uploads:/app/knowledge/uploads
+      - jfagent_output:/app/output
+    expose:
+      - "3000"
+
+  web:
+    image: ${JFAGENT_WEB_IMAGE:-ghcr.io/kevinalliswell/jfagent-web:latest}
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        VITE_SESSION_API_MODE: backend
+        VITE_API_BASE_URL: same-origin
+    restart: unless-stopped
+    depends_on:
+      - api
+    env_file:
+      - path: .env.caddy
+        required: false
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - jfagent_caddy_data:/data
+      - jfagent_caddy_config:/config
+
+volumes:
+  jfagent_knowledge_uploads:
+    name: jfagent_knowledge_uploads
+  jfagent_output:
+    name: jfagent_output
+  jfagent_caddy_data:
+    name: jfagent_caddy_data
+  jfagent_caddy_config:
+    name: jfagent_caddy_config

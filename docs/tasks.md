@@ -4,7 +4,7 @@ This file is the working task ledger. Update it whenever priorities or statuses 
 
 ## Current Focus
 
-Seed Trial Release is the current focus: prepare a controlled server deployment and admin-only knowledge upload so seed users can try the MVP without command-line access.
+Seed Trial Release is the current focus: ship a controlled Docker Compose server deployment and admin-only knowledge upload so seed users can try the MVP without command-line access or source-code access on the server.
 
 ## Task Board
 
@@ -24,14 +24,16 @@ Seed Trial Release is the current focus: prepare a controlled server deployment 
 | T-012 | P0 | Done | Add switchable frontend API client | Default mock mode is preserved; backend mode is enabled with `VITE_SESSION_API_MODE=backend` and `VITE_API_BASE_URL`. |
 | T-013 | P1 | Done | Move retrieval to backend API boundary | `kb:build` now emits frontend and backend knowledge indexes; backend chat returns hybrid `knowledge_hits` through `/api/session/chat` while mock mode keeps browser retrieval. |
 | T-014 | P0 | Done | Add admin knowledge upload for seed trial | Hidden `?admin=1` upload panel calls `/api/admin/knowledge/upload`, stores files under `knowledge/uploads/`, rebuilds the local index, and hot-reloads backend retrieval. |
-| T-015 | P0 | Done | Prepare seed server deployment docs | Documents Nginx, systemd, HTTPS, Basic Auth, deployment commands, rollback, and seed-user trial guidance. |
+| T-015 | P0 | Done | Prepare seed server deployment docs | Documents seed-user trial deployment and keeps systemd/Nginx as a legacy fallback. |
+| T-016 | P0 | Done | Containerize seed deployment with GHCR, Docker Compose, and Caddy | Adds API/Web Dockerfiles, Compose, Caddy Basic Auth/HTTPS routing, GHCR publish workflow, and volume-backed uploads/exports. |
 
 ## Immediate Next Steps
 
-1. Deploy to the target server using `docs/deployment.md`.
-2. Upload 10-20 cleaned internal seed documents through `?admin=1`.
-3. Run seed-user interviews and collect whether the requirement-sheet/export workflow is worth paying for.
-4. Add LibreOffice/`soffice` later so DOCX visual rendering can run.
+1. Confirm GHCR package visibility and create a server-side `read:packages` token.
+2. Deploy `compose.seed.yml` plus `.env.caddy` to the target server using `docs/deployment.md`.
+3. Upload 10-20 cleaned internal seed documents through `?admin=1`.
+4. Run seed-user interviews and collect whether the requirement-sheet/export workflow is worth paying for.
+5. Add LibreOffice/`soffice` later so DOCX visual rendering can run.
 
 ## Open Questions
 
@@ -39,6 +41,7 @@ Seed Trial Release is the current focus: prepare a controlled server deployment 
 - Should screenshots and generated demo artifacts be kept in the repo root or moved to `docs/assets/`?
 - What tenant/document permission model is required for SaaS?
 - Which domain and server account will host the seed trial?
+- Which seed/admin Basic Auth usernames and passwords should be used for the first invite group?
 
 ## Verification Commands
 
@@ -73,4 +76,5 @@ For seed deployment builds:
 ```bash
 VITE_SESSION_API_MODE=backend VITE_API_BASE_URL=same-origin npm run build
 npm run api:smoke
+docker compose -f compose.seed.yml build
 ```

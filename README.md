@@ -17,6 +17,7 @@ Implemented:
 - Quotation/BOQ ingestion for `.xlsx`, `.csv`, and `.tsv`.
 - Hybrid keyword/vector retrieval from generated knowledge chunks: browser-side in mock mode, backend-side in API mode.
 - Admin-only seed-trial knowledge upload through `?admin=1` in backend mode.
+- Docker Compose seed deployment with private GHCR images and Caddy HTTPS/Basic Auth.
 - Local hashed vectors for knowledge chunks; no external embedding API.
 - BOQ/quotation summary panel in the dashboard.
 - Switchable frontend API client: default local mock mode, optional backend API mode.
@@ -118,6 +119,12 @@ npm run kb:verify
 
 For seed server deployment, see `docs/deployment.md`. For seed-user trial guidance, see `docs/seed-user-trial.md`.
 
+Build seed-trial containers locally:
+
+```bash
+docker compose -f compose.seed.yml build
+```
+
 ## Directory Structure
 
 ```text
@@ -139,6 +146,8 @@ For seed server deployment, see `docs/deployment.md`. For seed-user trial guidan
 │   ├── roadmap.md
 │   ├── tasks.md
 │   └── decisions.md
+├── docker/                    # Seed deployment Dockerfiles, Caddyfile, entrypoint
+├── compose.seed.yml           # Docker Compose seed deployment
 ├── knowledge/                 # Local seed knowledge documents
 ├── server/                    # Node/TypeScript backend API skeleton
 ├── scripts/                   # Knowledge ingestion utilities

@@ -11,3 +11,6 @@ server/generatedKnowledge.json
 
 .DS_Store
 *.log
+.env
+.env.*
+!.env.caddy.example

@@ -28,6 +28,17 @@ const apiBaseUrl =
     ? ""
     : configuredApiBaseUrl.replace(/\/$/, "");
 
+let adminAuthHeader: string | null = null;
+
+class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
@@ -42,7 +53,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     body = rawBody ? (JSON.parse(rawBody) as T) : ({} as T);
   } catch {
     if (!response.ok) {
-      throw new Error(`API request failed with ${response.status}`);
+      throw new ApiRequestError(`API request failed with ${response.status}`, response.status);
     }
     throw new Error("API response was not valid JSON.");
   }
@@ -54,9 +65,55 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       typeof (body as { error?: { message?: unknown } }).error?.message === "string"
         ? (body as { error: { message: string } }).error.message
         : `API request failed with ${response.status}`;
-    throw new Error(message);
+    throw new ApiRequestError(message, response.status);
   }
   return body;
+}
+
+function promptAdminAuthHeader() {
+  const username = window.prompt("请输入管理员账号");
+  if (!username) return null;
+  const password = window.prompt("请输入管理员密码");
+  if (password === null) return null;
+  return `Basic ${window.btoa(`${username}:${password}`)}`;
+}
+
+async function requestAdminJson<T>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await requestJson<T>(path, {
+      ...init,
+      headers: {
+        ...(adminAuthHeader ? { authorization: adminAuthHeader } : {}),
+        ...(init?.headers ?? {})
+      }
+    });
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) || (error.status !== 401 && error.status !== 403)) {
+      throw error;
+    }
+  }
+
+  adminAuthHeader = promptAdminAuthHeader();
+  if (!adminAuthHeader) {
+    throw new Error("已取消管理员认证。");
+  }
+
+  try {
+    return await requestJson<T>(path, {
+      ...init,
+      headers: {
+        authorization: adminAuthHeader,
+        ...(init?.headers ?? {})
+      }
+    });
+  } catch (error) {
+    if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403)) {
+      adminAuthHeader = null;
+      error.message = "管理员账号或密码未通过 Basic Auth。";
+      throw error;
+    }
+    throw error;
+  }
 }
 
 export async function postSessionChat(params: {
@@ -124,7 +181,7 @@ export async function getKnowledgeStatus(): Promise<{
   server_time: string;
   data: KnowledgeIndexStatus;
 }> {
-  return requestJson<{ ok: true; server_time: string; data: KnowledgeIndexStatus }>(
+  return requestAdminJson<{ ok: true; server_time: string; data: KnowledgeIndexStatus }>(
     "/api/admin/knowledge/status"
   );
 }
@@ -133,7 +190,7 @@ export async function uploadKnowledgeFile(params: {
   file_name: string;
   content_base64: string;
 }): Promise<{ ok: true; server_time: string; data: KnowledgeUploadResponseData }> {
-  return requestJson<{ ok: true; server_time: string; data: KnowledgeUploadResponseData }>(
+  return requestAdminJson<{ ok: true; server_time: string; data: KnowledgeUploadResponseData }>(
     "/api/admin/knowledge/upload",
     {
       method: "POST",

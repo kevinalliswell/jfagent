@@ -86,17 +86,26 @@ Current MVP:
 
 Selected for the seed trial:
 
-- Nginx static frontend hosting.
-- Nginx reverse proxy to the Node backend.
-- Nginx Basic Auth for seed users.
-- Separate Nginx Basic Auth file for `/api/admin/`.
-- `systemd` for backend process supervision.
+- Private GHCR images for API and web.
+- Docker Compose for single-server orchestration.
+- Caddy for static frontend hosting, HTTPS, reverse proxy, and Basic Auth.
+- Separate Caddy Basic Auth credentials for `/api/admin/`.
+- Docker named volumes for uploaded knowledge, generated exports, and Caddy state.
 
 Why:
 
-- Fast to deploy on a single server.
-- Keeps access controlled before real auth exists.
-- Lets the team validate product value before investing in SaaS infrastructure.
+- The seed server does not need the source repo.
+- Image tags make update and rollback explicit.
+- Caddy keeps HTTPS and access control in the Compose deployment boundary.
+- Volumes preserve operational data across image upgrades.
+- The team can validate product value before investing in SaaS infrastructure.
+
+Legacy fallback:
+
+- Nginx static hosting and reverse proxy.
+- `systemd` for backend process supervision.
+
+Use the fallback only when Docker is unavailable.
 
 Candidate vector stores:
 

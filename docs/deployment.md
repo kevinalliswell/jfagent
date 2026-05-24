@@ -1,218 +1,252 @@
 # Seed Server Deployment
 
-This document describes the controlled seed-user deployment for the local-first MVP.
+This is the recommended seed-user deployment path. The server does not clone or build the source repo. It only runs private GHCR images with Docker Compose and persists runtime data in Docker volumes.
 
 ## Target Shape
 
 - OS: Ubuntu 22.04/24.04 or Debian 12.
-- Runtime: Node.js 20+, Python 3.10+, Nginx, Certbot.
-- App directory: `/opt/jfagent`.
-- Backend: `127.0.0.1:3000` through `systemd`.
-- Frontend: static files from `/opt/jfagent/dist`.
-- Public access: Nginx HTTPS with Basic Auth.
-- Admin upload: `/api/admin/` protected by a separate Basic Auth file.
+- Runtime: Docker Engine with Docker Compose v2.
+- Images:
+  - `ghcr.io/kevinalliswell/jfagent-api`
+  - `ghcr.io/kevinalliswell/jfagent-web`
+- Public entrypoint: Caddy container on ports `80` and `443`.
+- Backend API: private Compose network only, listening on `api:3000`.
+- Persistent data:
+  - uploaded knowledge files: `jfagent_knowledge_uploads`
+  - generated export files: `jfagent_output`
+  - Caddy certificates/config state: `jfagent_caddy_data`, `jfagent_caddy_config`
 
-This is for seed validation only. It is not a production SaaS deployment.
+This is still a controlled seed trial, not a production SaaS deployment.
 
-## Install
+## Image Publishing
+
+Images are published by GitHub Actions in `.github/workflows/docker-publish.yml` when `main` is pushed.
+
+Published tags:
+
+```text
+ghcr.io/kevinalliswell/jfagent-api:latest
+ghcr.io/kevinalliswell/jfagent-api:main
+ghcr.io/kevinalliswell/jfagent-api:<commit-sha>
+ghcr.io/kevinalliswell/jfagent-web:latest
+ghcr.io/kevinalliswell/jfagent-web:main
+ghcr.io/kevinalliswell/jfagent-web:<commit-sha>
+```
+
+Keep the GHCR packages private for seed trials. The server only needs a GitHub token with `read:packages`.
+
+## Server Setup
+
+Install Docker:
 
 ```bash
 sudo apt update
-sudo apt install -y git nginx apache2-utils python3 python3-venv python3-pip certbot python3-certbot-nginx
-
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-
-sudo mkdir -p /opt
-sudo git clone https://github.com/kevinalliswell/jfagent.git /opt/jfagent
-sudo chown -R "$USER":"$USER" /opt/jfagent
-cd /opt/jfagent
-
-npm ci
-python3 -m venv .venv
-. .venv/bin/activate
-pip install python-docx openpyxl pdfplumber pypdf
+sudo apt install -y ca-certificates curl gnupg
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"
 ```
 
-## Build
+Log out and back in so the `docker` group takes effect.
+
+Create a deploy directory:
 
 ```bash
-cd /opt/jfagent
-PYTHON_BIN=/opt/jfagent/.venv/bin/python npm run check
-VITE_SESSION_API_MODE=backend VITE_API_BASE_URL=same-origin npm run build
-PYTHON_BIN=/opt/jfagent/.venv/bin/python npm run api:build
+sudo mkdir -p /opt/jfagent-deploy
+sudo chown -R "$USER":"$USER" /opt/jfagent-deploy
+cd /opt/jfagent-deploy
 ```
 
-## systemd
-
-Create `/etc/systemd/system/jfagent.service`:
-
-```ini
-[Unit]
-Description=JF Agent seed API
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/jfagent
-Environment=NODE_ENV=production
-Environment=HOST=127.0.0.1
-Environment=PORT=3000
-Environment=PYTHON_BIN=/opt/jfagent/.venv/bin/python
-ExecStart=/usr/bin/node /opt/jfagent/server-dist/index.js
-Restart=always
-RestartSec=5
-User=www-data
-Group=www-data
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Prepare writable directories:
-
-```bash
-sudo mkdir -p /opt/jfagent/knowledge/uploads /opt/jfagent/output/doc
-sudo chown -R www-data:www-data /opt/jfagent/knowledge/uploads /opt/jfagent/output
-sudo chown -R www-data:www-data /opt/jfagent/src/generatedKnowledge.ts /opt/jfagent/server/generatedKnowledge.ts /opt/jfagent/server/generatedKnowledge.json 2>/dev/null || true
-```
-
-Start:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now jfagent
-sudo systemctl status jfagent
-```
-
-## Nginx And Auth
-
-Create Basic Auth users:
-
-```bash
-sudo htpasswd -c /etc/nginx/.jfagent_seed_users seeduser
-sudo htpasswd -c /etc/nginx/.jfagent_admin admin
-```
-
-Create `/etc/nginx/sites-available/jfagent`:
-
-```nginx
-server {
-  listen 80;
-  server_name DOMAIN;
-
-  root /opt/jfagent/dist;
-  index index.html;
-
-  auth_basic "JF Agent seed trial";
-  auth_basic_user_file /etc/nginx/.jfagent_seed_users;
-
-  location /api/admin/ {
-    auth_basic "JF Agent admin";
-    auth_basic_user_file /etc/nginx/.jfagent_admin;
-    proxy_pass http://127.0.0.1:3000/api/admin/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_read_timeout 180s;
-    client_max_body_size 30m;
-  }
-
-  location /api/ {
-    proxy_pass http://127.0.0.1:3000/api/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_read_timeout 180s;
-  }
-
-  location / {
-    try_files $uri /index.html;
-  }
-}
-```
-
-Enable:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/jfagent /etc/nginx/sites-enabled/jfagent
-sudo nginx -t
-sudo systemctl reload nginx
-sudo certbot --nginx -d DOMAIN
-```
-
-## Admin Knowledge Upload
-
-Open:
+Copy only these files to the server:
 
 ```text
-https://DOMAIN/?admin=1
+compose.seed.yml
+.env.caddy
 ```
 
-Use the admin Basic Auth account when the browser prompts for `/api/admin/`.
+Do not copy the source repo to the server.
 
-Supported files:
+## Caddy Auth Environment
 
-- `.md`
-- `.txt`
-- `.docx`
-- `.pdf`
-- `.xlsx`
-- `.csv`
-- `.tsv`
+Generate two password hashes. Use different passwords for seed users and admins:
 
-Upload behavior:
+```bash
+docker run --rm caddy:2-alpine caddy hash-password --plaintext 'SEED_PASSWORD'
+docker run --rm caddy:2-alpine caddy hash-password --plaintext 'ADMIN_PASSWORD'
+```
 
-- Files are stored under `/opt/jfagent/knowledge/uploads/`.
-- The backend runs `npm run kb:build`.
-- Backend retrieval reloads the runtime JSON index.
-- The frontend does not need to rebuild or refresh, but a new chat turn is needed to see new retrieval hits.
+Create `/opt/jfagent-deploy/.env.caddy`:
+
+```dotenv
+DOMAIN=your-domain.example.com
+SEED_BASIC_AUTH_USER=seeduser
+SEED_BASIC_AUTH_HASH='PASTE_SEED_BCRYPT_HASH'
+ADMIN_BASIC_AUTH_USER=admin
+ADMIN_BASIC_AUTH_HASH='PASTE_ADMIN_BCRYPT_HASH'
+```
+
+The hash contains `$` characters. Wrap each hash in single quotes in `.env.caddy` so Docker Compose treats it as a literal value.
+
+## GHCR Login
+
+Create a GitHub Personal Access Token with `read:packages`, then log in:
+
+```bash
+echo 'GHCR_READ_TOKEN' | docker login ghcr.io -u kevinalliswell --password-stdin
+```
+
+## Start
+
+Make sure the domain has an A record pointing to this server and that ports `80` and `443` are open.
+
+```bash
+cd /opt/jfagent-deploy
+docker compose -f compose.seed.yml pull
+docker compose -f compose.seed.yml up -d
+docker compose -f compose.seed.yml ps
+```
+
+Caddy automatically requests and renews HTTPS certificates.
 
 ## Verify
 
+Seed-user health check:
+
 ```bash
-curl -u seeduser:PASSWORD https://DOMAIN/api/health
-curl -u admin:PASSWORD https://DOMAIN/api/admin/knowledge/status
-sudo journalctl -u jfagent -f
+curl -u seeduser:SEED_PASSWORD https://DOMAIN/api/health
+```
+
+Admin knowledge status:
+
+```bash
+curl -u admin:ADMIN_PASSWORD https://DOMAIN/api/admin/knowledge/status
+```
+
+Logs:
+
+```bash
+docker compose -f compose.seed.yml logs -f api
+docker compose -f compose.seed.yml logs -f web
 ```
 
 Seed-user flow:
 
-1. Log in with seed Basic Auth.
-2. Paste a messy machine-room project description.
-3. Confirm dashboard fields and risks update.
-4. Check local knowledge hits show sources.
-5. Trigger the Word export willingness flow.
+1. Open `https://DOMAIN/`.
+2. Log in with the seed Basic Auth account.
+3. Paste a realistic machine-room project description.
+4. Confirm dashboard fields, risks, knowledge citations, and export willingness flow.
 
-Admin flow:
+Admin upload flow:
 
-1. Log in to `https://DOMAIN/?admin=1`.
-2. Upload cleaned internal documents.
-3. Confirm chunk count increases.
-4. Start a new chat using words from the uploaded document and check citations.
+1. Open `https://DOMAIN/?admin=1`.
+2. Use the seed account for the page if prompted.
+3. Upload through the admin panel and enter the admin Basic Auth account if the page asks for it.
+4. Start a new chat turn and confirm uploaded sources appear in knowledge hits.
 
-## Update And Rollback
+## Runtime Behavior
 
-Update:
+The API container runs `npm run kb:build` on startup before serving traffic. This rebuilds the runtime index from:
 
-```bash
-cd /opt/jfagent
-git pull
-npm ci
-PYTHON_BIN=/opt/jfagent/.venv/bin/python npm run check
-VITE_SESSION_API_MODE=backend VITE_API_BASE_URL=same-origin npm run build
-PYTHON_BIN=/opt/jfagent/.venv/bin/python npm run api:build
-sudo systemctl restart jfagent
-```
+- seed files baked into the image under `knowledge/`
+- uploaded files stored in `jfagent_knowledge_uploads`
+- top-level seed specs baked into the image: `knowledge_base.md`, `rules.md`, `templates.md`
 
-Rollback:
+When an admin uploads a file, the API saves it under `/app/knowledge/uploads`, rebuilds the index, and hot-reloads `server/generatedKnowledge.json`. Frontend rebuilding is not required.
+
+## Update
+
+For normal latest-image upgrades:
 
 ```bash
-cd /opt/jfagent
-git log --oneline -5
-git checkout COMMIT_SHA
-npm ci
-VITE_SESSION_API_MODE=backend VITE_API_BASE_URL=same-origin npm run build
-PYTHON_BIN=/opt/jfagent/.venv/bin/python npm run api:build
-sudo systemctl restart jfagent
+cd /opt/jfagent-deploy
+docker compose -f compose.seed.yml pull
+docker compose -f compose.seed.yml up -d
+docker image prune -f
 ```
 
-Uploaded files remain in `knowledge/uploads/` unless manually removed.
+Uploaded knowledge files and generated output files remain in named volumes.
+
+## Rollback
+
+Use the previous commit SHA tags:
+
+```bash
+cd /opt/jfagent-deploy
+JFAGENT_API_IMAGE=ghcr.io/kevinalliswell/jfagent-api:COMMIT_SHA \
+JFAGENT_WEB_IMAGE=ghcr.io/kevinalliswell/jfagent-web:COMMIT_SHA \
+docker compose -f compose.seed.yml up -d
+```
+
+For a longer rollback window, write the two image variables into a local `.env` file next to `compose.seed.yml`:
+
+```dotenv
+JFAGENT_API_IMAGE=ghcr.io/kevinalliswell/jfagent-api:COMMIT_SHA
+JFAGENT_WEB_IMAGE=ghcr.io/kevinalliswell/jfagent-web:COMMIT_SHA
+```
+
+Then run:
+
+```bash
+docker compose -f compose.seed.yml pull
+docker compose -f compose.seed.yml up -d
+```
+
+## Backup And Restore
+
+Back up uploaded knowledge:
+
+```bash
+docker run --rm \
+  -v jfagent_knowledge_uploads:/data:ro \
+  -v "$PWD":/backup \
+  alpine tar czf /backup/jfagent_knowledge_uploads.tgz -C /data .
+```
+
+Back up generated exports:
+
+```bash
+docker run --rm \
+  -v jfagent_output:/data:ro \
+  -v "$PWD":/backup \
+  alpine tar czf /backup/jfagent_output.tgz -C /data .
+```
+
+Restore uploaded knowledge:
+
+```bash
+docker run --rm \
+  -v jfagent_knowledge_uploads:/data \
+  -v "$PWD":/backup \
+  alpine sh -c "cd /data && tar xzf /backup/jfagent_knowledge_uploads.tgz"
+docker compose -f compose.seed.yml restart api
+```
+
+## Local Container Verification
+
+For local Docker verification on a development machine:
+
+```bash
+cp .env.caddy.example .env.caddy
+```
+
+Set `DOMAIN=:80` in `.env.caddy` for plain local HTTP, and fill the auth hashes with values from `caddy hash-password`.
+
+```bash
+docker compose -f compose.seed.yml build
+docker compose -f compose.seed.yml up -d
+curl -u seeduser:SEED_PASSWORD http://localhost/api/health
+docker compose -f compose.seed.yml down
+```
+
+## Legacy Fallback: systemd And Nginx
+
+The previous single-server fallback is still viable when Docker is unavailable:
+
+- clone the repo into `/opt/jfagent`
+- install Node.js 20 and Python 3.10+
+- install `python-docx`, `openpyxl`, `pdfplumber`, and `pypdf` in a virtualenv
+- run `npm ci`, `npm run check`, backend-mode frontend build, and `npm run api:build`
+- supervise `node server-dist/index.js` with `systemd`
+- serve `dist/` and proxy `/api/` with Nginx
+- protect the site and `/api/admin/` with separate Nginx Basic Auth files
+
+Use this only as a fallback. The preferred seed trial path is GHCR images plus Docker Compose.

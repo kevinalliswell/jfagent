@@ -1,0 +1,31 @@
+{$DOMAIN} {
+	encode gzip
+
+	@admin path /api/admin/*
+	handle @admin {
+		request_body {
+			max_size 30MB
+		}
+		basic_auth {
+			{$ADMIN_BASIC_AUTH_USER} {$ADMIN_BASIC_AUTH_HASH}
+		}
+		reverse_proxy api:3000
+	}
+
+	@api path /api/*
+	handle @api {
+		basic_auth {
+			{$SEED_BASIC_AUTH_USER} {$SEED_BASIC_AUTH_HASH}
+		}
+		reverse_proxy api:3000
+	}
+
+	handle {
+		basic_auth {
+			{$SEED_BASIC_AUTH_USER} {$SEED_BASIC_AUTH_HASH}
+		}
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
