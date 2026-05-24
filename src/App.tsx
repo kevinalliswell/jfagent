@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -24,15 +24,18 @@ import {
   completionForState,
   displayForField,
   getSessionExport,
+  getKnowledgeStatus,
   initialSession,
   postSessionChat,
   postSessionOverride,
+  uploadKnowledgeFile,
   sourceLabel
 } from "./sessionApi";
 import type {
   ChatMessage,
   DashboardField,
   ExportAsset,
+  KnowledgeIndexStatus,
   KnowledgeHit,
   PaymentRequiredError,
   RiskFlag,
@@ -40,6 +43,7 @@ import type {
 } from "./types";
 
 const demoPrompt = "某学校老机房改造，30平，UPS、电池、精密空调和动环，柜子还没定";
+const maxKnowledgeUploadBytes = 20 * 1024 * 1024;
 
 function makeMessage(sender: ChatMessage["sender"], text: string): ChatMessage {
   return {
@@ -140,6 +144,18 @@ function buildCommercialSummary(hits: KnowledgeHit[]) {
   };
 }
 
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.includes(",") ? result.split(",")[1] : result);
+    };
+    reader.onerror = () => reject(new Error("文件读取失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function App() {
   const [session, setSession] = useState<SessionSnapshot>(initialSession);
   const [input, setInput] = useState("");
@@ -149,9 +165,18 @@ export default function App() {
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [paymentRequest, setPaymentRequest] = useState<PaymentRequiredError | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const isAdminMode = useMemo(() => new URLSearchParams(window.location.search).get("admin") === "1", []);
+  const [knowledgeStatus, setKnowledgeStatus] = useState<KnowledgeIndexStatus | null>(null);
+  const [knowledgeUploadNotice, setKnowledgeUploadNotice] = useState<string | null>(null);
+  const [isKnowledgeUploading, setIsKnowledgeUploading] = useState(false);
 
   const latestSession = useRef(session);
   latestSession.current = session;
+
+  useEffect(() => {
+    if (!isAdminMode) return;
+    void refreshKnowledgeStatus();
+  }, [isAdminMode]);
 
   const orderedFields = useMemo(
     () => [
@@ -220,6 +245,41 @@ export default function App() {
       });
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function refreshKnowledgeStatus() {
+    try {
+      const result = await getKnowledgeStatus();
+      setKnowledgeStatus(result.data);
+    } catch (error) {
+      setKnowledgeUploadNotice(error instanceof Error ? error.message : "知识库状态读取失败");
+    }
+  }
+
+  async function uploadKnowledge(file: File | null) {
+    if (!file || isKnowledgeUploading) return;
+    if (file.size > maxKnowledgeUploadBytes) {
+      setKnowledgeUploadNotice("单文件不能超过 20MB");
+      return;
+    }
+
+    setIsKnowledgeUploading(true);
+    setKnowledgeUploadNotice("正在上传并重建知识索引...");
+    try {
+      const contentBase64 = await fileToBase64(file);
+      const result = await uploadKnowledgeFile({
+        file_name: file.name,
+        content_base64: contentBase64
+      });
+      setKnowledgeUploadNotice(
+        `已导入 ${result.data.uploaded_file.original_file_name}，当前 ${result.data.index.chunk_count} 个知识片段`
+      );
+      await refreshKnowledgeStatus();
+    } catch (error) {
+      setKnowledgeUploadNotice(error instanceof Error ? error.message : "知识库上传失败");
+    } finally {
+      setIsKnowledgeUploading(false);
     }
   }
 
@@ -310,7 +370,15 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <Sidebar onReset={resetSession} />
+      <Sidebar
+        onReset={resetSession}
+        isAdminMode={isAdminMode}
+        knowledgeStatus={knowledgeStatus}
+        knowledgeUploadNotice={knowledgeUploadNotice}
+        isKnowledgeUploading={isKnowledgeUploading}
+        onKnowledgeUpload={uploadKnowledge}
+        onRefreshKnowledgeStatus={refreshKnowledgeStatus}
+      />
       <section className="workbench">
         <ChatPanel
           session={session}
@@ -350,7 +418,23 @@ export default function App() {
   );
 }
 
-function Sidebar({ onReset }: { onReset: () => void }) {
+function Sidebar({
+  onReset,
+  isAdminMode,
+  knowledgeStatus,
+  knowledgeUploadNotice,
+  isKnowledgeUploading,
+  onKnowledgeUpload,
+  onRefreshKnowledgeStatus
+}: {
+  onReset: () => void;
+  isAdminMode: boolean;
+  knowledgeStatus: KnowledgeIndexStatus | null;
+  knowledgeUploadNotice: string | null;
+  isKnowledgeUploading: boolean;
+  onKnowledgeUpload: (file: File | null) => void;
+  onRefreshKnowledgeStatus: () => void;
+}) {
   return (
     <aside className="sidebar">
       <div className="brand-block">
@@ -368,14 +452,15 @@ function Sidebar({ onReset }: { onReset: () => void }) {
         新建商机摸底
       </button>
 
-      <button
-        className="kb-action"
-        title="把资料放入 knowledge/ 后运行 npm run kb:build"
-        onClick={() => alert("把 .md/.txt 资料放进 knowledge/，运行 npm run kb:build 后刷新页面即可检索。")}
-      >
-        <FolderUp size={17} />
-        导入本地知识库
-      </button>
+      {isAdminMode && (
+        <AdminKnowledgeUpload
+          status={knowledgeStatus}
+          notice={knowledgeUploadNotice}
+          isUploading={isKnowledgeUploading}
+          onUpload={onKnowledgeUpload}
+          onRefresh={onRefreshKnowledgeStatus}
+        />
+      )}
 
       <div className="sidebar-section">
         <span className="section-label">内测模拟商机</span>
@@ -398,6 +483,55 @@ function Sidebar({ onReset }: { onReset: () => void }) {
         <span>规则引擎优先于LLM推断</span>
       </div>
     </aside>
+  );
+}
+
+function AdminKnowledgeUpload({
+  status,
+  notice,
+  isUploading,
+  onUpload,
+  onRefresh
+}: {
+  status: KnowledgeIndexStatus | null;
+  notice: string | null;
+  isUploading: boolean;
+  onUpload: (file: File | null) => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="admin-upload">
+      <div className="admin-upload-title">
+        <FolderUp size={17} />
+        <span>管理员知识上传</span>
+      </div>
+      <label className={`kb-action upload-label ${isUploading ? "disabled" : ""}`}>
+        {isUploading ? <Loader2 className="spin" size={17} /> : <FolderUp size={17} />}
+        上传资料并重建
+        <input
+          type="file"
+          accept=".md,.txt,.docx,.pdf,.xlsx,.csv,.tsv"
+          disabled={isUploading}
+          onChange={(event) => {
+            onUpload(event.currentTarget.files?.[0] ?? null);
+            event.currentTarget.value = "";
+          }}
+        />
+      </label>
+      <button className="admin-refresh" type="button" onClick={onRefresh} disabled={isUploading}>
+        <RefreshCw size={14} />
+        刷新状态
+      </button>
+      <div className="admin-status">
+        <span>{status ? `${status.index.chunk_count} 个片段` : "状态待读取"}</span>
+        <small>
+          {status?.last_uploaded_file
+            ? `最近：${status.last_uploaded_file.original_file_name ?? status.last_uploaded_file.stored_file_name}`
+            : "支持 md/txt/docx/pdf/xlsx/csv/tsv"}
+        </small>
+      </div>
+      {notice && <p>{notice}</p>}
+    </section>
   );
 }
 

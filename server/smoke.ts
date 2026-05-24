@@ -37,6 +37,24 @@ try {
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
 
+  const knowledgeStatus = await requestJson("/api/admin/knowledge/status");
+  assert.equal(knowledgeStatus.status, 200);
+  const knowledgeStatusData = knowledgeStatus.body.data as {
+    index: { chunk_count: number; index_file: string };
+  };
+  assert.ok(knowledgeStatusData.index.chunk_count > 0);
+  assert.ok(knowledgeStatusData.index.index_file.endsWith("server/generatedKnowledge.json"));
+
+  const invalidKnowledgeUpload = await requestJson("/api/admin/knowledge/upload", {
+    method: "POST",
+    body: JSON.stringify({
+      file_name: "bad.exe",
+      content_base64: Buffer.from("invalid").toString("base64")
+    })
+  });
+  assert.equal(invalidKnowledgeUpload.status, 400);
+  assert.equal((invalidKnowledgeUpload.body.error as { code: string }).code, "VALIDATION_ERROR");
+
   const chat = await requestJson("/api/session/chat", {
     method: "POST",
     body: JSON.stringify({

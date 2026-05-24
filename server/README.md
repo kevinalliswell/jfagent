@@ -41,6 +41,8 @@ PORT=3100 npm run api:start
 - `POST /api/session/chat`
 - `POST /api/session/override`
 - `GET /api/session/export`
+- `GET /api/admin/knowledge/status`
+- `POST /api/admin/knowledge/upload`
 
 The implementation is intentionally lightweight:
 
@@ -51,6 +53,8 @@ The implementation is intentionally lightweight:
 - `ExportPayloadV1` builder for Word rendering input.
 - First-pass DOCX renderer using `scripts/render-export-docx.py`.
 - In-memory rendered asset registry served by `GET /api/assets/{asset_id}/download`.
+- Admin-only seed-trial knowledge upload when protected by Nginx Basic Auth.
+- Runtime retrieval index reload from `server/generatedKnowledge.json`.
 
 ## Current Boundary
 
@@ -68,3 +72,11 @@ In another terminal:
 ```bash
 npm run dev:backend
 ```
+
+For seed deployment, build the frontend with same-origin API calls:
+
+```bash
+VITE_SESSION_API_MODE=backend VITE_API_BASE_URL=same-origin npm run build
+```
+
+Then protect `/api/admin/` at the reverse proxy layer before exposing the upload endpoint.

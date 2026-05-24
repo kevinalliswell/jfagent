@@ -1,10 +1,34 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { KnowledgeHit } from "./types.js";
-import {
-  knowledgeIndex,
-  localEmbeddingDimensions,
-  localEmbeddingModel,
-  type LocalKnowledgeChunk
-} from "./generatedKnowledge.js";
+
+type SourceType = "rule" | "case" | "device_manual" | "template" | "quotation" | "boq" | "local_doc";
+
+interface LocalKnowledgeChunk {
+  id: string;
+  title: string;
+  sourceType: SourceType;
+  sourceFile: string;
+  text: string;
+  vector: number[];
+}
+
+interface RuntimeKnowledgeIndex {
+  generatedAt: string;
+  localEmbeddingModel: string;
+  localEmbeddingDimensions: number;
+  knowledgeIndex: LocalKnowledgeChunk[];
+}
+
+export interface KnowledgeIndexStats {
+  generated_at: string;
+  local_embedding_model: string;
+  local_embedding_dimensions: number;
+  chunk_count: number;
+  index_file: string;
+}
+
+const indexFile = resolve(process.cwd(), "server/generatedKnowledge.json");
 
 const domainTerms = [
   "机房",
@@ -48,6 +72,22 @@ const domainTerms = [
   "docx",
   "steel structure load"
 ];
+
+function loadKnowledgeIndex(): RuntimeKnowledgeIndex {
+  if (!existsSync(indexFile)) {
+    throw new Error(`Knowledge runtime index is missing: ${indexFile}. Run npm run kb:build first.`);
+  }
+  const parsed = JSON.parse(readFileSync(indexFile, "utf8")) as RuntimeKnowledgeIndex;
+  if (!Array.isArray(parsed.knowledgeIndex) || parsed.knowledgeIndex.length === 0) {
+    throw new Error(`Knowledge runtime index is empty or invalid: ${indexFile}.`);
+  }
+  if (typeof parsed.localEmbeddingDimensions !== "number" || parsed.localEmbeddingDimensions <= 0) {
+    throw new Error(`Knowledge runtime index dimensions are invalid: ${indexFile}.`);
+  }
+  return parsed;
+}
+
+let runtimeIndex = loadKnowledgeIndex();
 
 function expandQueryTerms(text: string) {
   const terms = new Set<string>();
@@ -121,11 +161,11 @@ function hashToken(token: string) {
   return hash >>> 0;
 }
 
-function embedQuery(text: string) {
-  const vector = Array.from({ length: localEmbeddingDimensions }, () => 0);
+function embedQuery(text: string, dimensions: number) {
+  const vector = Array.from({ length: dimensions }, () => 0);
   for (const token of tokenizeForEmbedding(text)) {
     const hash = hashToken(token);
-    const dimension = hash % localEmbeddingDimensions;
+    const dimension = hash % dimensions;
     const sign = hash & 1 ? 1 : -1;
     vector[dimension] += sign;
   }
@@ -183,10 +223,26 @@ function chunkToHit(item: RankedChunk): KnowledgeHit {
   };
 }
 
+export function reloadKnowledgeIndex(): KnowledgeIndexStats {
+  runtimeIndex = loadKnowledgeIndex();
+  return getKnowledgeIndexStats();
+}
+
+export function getKnowledgeIndexStats(): KnowledgeIndexStats {
+  return {
+    generated_at: runtimeIndex.generatedAt,
+    local_embedding_model: runtimeIndex.localEmbeddingModel,
+    local_embedding_dimensions: runtimeIndex.localEmbeddingDimensions,
+    chunk_count: runtimeIndex.knowledgeIndex.length,
+    index_file: indexFile
+  };
+}
+
 export function searchKnowledge(text: string, limit = 3): KnowledgeHit[] {
+  const index = runtimeIndex;
   const terms = expandQueryTerms(text);
-  const queryVector = embedQuery(text);
-  const ranked = knowledgeIndex
+  const queryVector = embedQuery(text, index.localEmbeddingDimensions);
+  const ranked = index.knowledgeIndex
     .map((chunk): RankedChunk => {
       const rawKeywordScore = keywordScore(chunk, terms);
       const vectorScore = dotProduct(queryVector, chunk.vector);
@@ -243,17 +299,21 @@ export function searchKnowledge(text: string, limit = 3): KnowledgeHit[] {
 
   if (scored.length > 0) return scored;
 
-  return knowledgeIndex.slice(0, limit).map((chunk, index) =>
+  return index.knowledgeIndex.slice(0, limit).map((chunk, fallbackIndex) =>
     chunkToHit({
       chunk,
       keywordScore: 0,
       vectorScore: 0,
-      finalScore: 0.55 - index * 0.05
+      finalScore: 0.55 - fallbackIndex * 0.05
     })
   );
 }
 
 export const localVectorSearchInfo = {
-  model: localEmbeddingModel,
-  dimensions: localEmbeddingDimensions
+  get model() {
+    return runtimeIndex.localEmbeddingModel;
+  },
+  get dimensions() {
+    return runtimeIndex.localEmbeddingDimensions;
+  }
 };

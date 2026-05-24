@@ -10,6 +10,8 @@ import {
 import type {
   ChatResponseData,
   ExportResponseData,
+  KnowledgeIndexStatus,
+  KnowledgeUploadResponseData,
   OverrideResponseData,
   PaymentRequiredError,
   SessionSnapshot,
@@ -20,7 +22,11 @@ type SessionApiMode = "mock" | "backend";
 
 const configuredMode = import.meta.env.VITE_SESSION_API_MODE;
 export const sessionApiMode: SessionApiMode = configuredMode === "backend" ? "backend" : "mock";
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+const apiBaseUrl =
+  !configuredApiBaseUrl || configuredApiBaseUrl === "same-origin"
+    ? ""
+    : configuredApiBaseUrl.replace(/\/$/, "");
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -30,7 +36,16 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {})
     }
   });
-  const body = (await response.json()) as T;
+  const rawBody = await response.text();
+  let body: T;
+  try {
+    body = rawBody ? (JSON.parse(rawBody) as T) : ({} as T);
+  } catch {
+    if (!response.ok) {
+      throw new Error(`API request failed with ${response.status}`);
+    }
+    throw new Error("API response was not valid JSON.");
+  }
   if (!response.ok && response.status !== 402) {
     const message =
       typeof body === "object" &&
@@ -102,6 +117,29 @@ export async function getSessionExport(params: {
     result.data.asset.download_url = `${apiBaseUrl}${result.data.asset.download_url}`;
   }
   return result;
+}
+
+export async function getKnowledgeStatus(): Promise<{
+  ok: true;
+  server_time: string;
+  data: KnowledgeIndexStatus;
+}> {
+  return requestJson<{ ok: true; server_time: string; data: KnowledgeIndexStatus }>(
+    "/api/admin/knowledge/status"
+  );
+}
+
+export async function uploadKnowledgeFile(params: {
+  file_name: string;
+  content_base64: string;
+}): Promise<{ ok: true; server_time: string; data: KnowledgeUploadResponseData }> {
+  return requestJson<{ ok: true; server_time: string; data: KnowledgeUploadResponseData }>(
+    "/api/admin/knowledge/upload",
+    {
+      method: "POST",
+      body: JSON.stringify(params)
+    }
+  );
 }
 
 export { completionForState, displayForField, initialSession, sourceLabel };

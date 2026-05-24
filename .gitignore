@@ -3,9 +3,11 @@ dist/
 server-dist/
 output/
 tmp/
+knowledge/uploads/
 
 src/generatedKnowledge.ts
 server/generatedKnowledge.ts
+server/generatedKnowledge.json
 
 .DS_Store
 *.log

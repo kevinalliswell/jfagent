@@ -47,9 +47,12 @@ It generates:
 ```text
 src/generatedKnowledge.ts
 server/generatedKnowledge.ts
+server/generatedKnowledge.json
 ```
 
-Mock mode imports `src/generatedKnowledge.ts` and performs local hybrid keyword/vector retrieval in the browser. Backend mode imports `server/generatedKnowledge.ts`; `/api/session/chat` performs retrieval in the API layer and returns `knowledge_hits` to the frontend.
+Mock mode imports `src/generatedKnowledge.ts` and performs local hybrid keyword/vector retrieval in the browser. Backend mode loads `server/generatedKnowledge.json` at runtime; `/api/session/chat` performs retrieval in the API layer and returns `knowledge_hits` to the frontend.
+
+For seed trials, an administrator can open `/?admin=1` in backend mode and upload supported files through the UI. Uploaded files are stored under `knowledge/uploads/`, `npm run kb:build` is triggered automatically, and backend retrieval hot-reloads the runtime index.
 
 The current local vector mode is:
 
@@ -68,6 +71,7 @@ Supported now:
 - Source file metadata.
 - Local hashed vector generation.
 - Local hybrid keyword/vector retrieval in frontend mock mode and backend API mode.
+- Admin-only UI upload for seed-trial knowledge refresh in backend mode.
 - Knowledge hit display in the right panel.
 - Quotation/BOQ summary display in the right panel.
 - Payment-intent gate for formal Word export.
@@ -77,7 +81,7 @@ Not implemented yet:
 - Legacy `.xls` parsing.
 - Real semantic embedding models.
 - Persistent vector database.
-- Permission control.
+- Application-level permission control beyond Nginx Basic Auth.
 
 ## Next Upgrade Path
 

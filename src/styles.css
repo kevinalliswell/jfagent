@@ -120,6 +120,15 @@ button {
   font-weight: 700;
 }
 
+.kb-action input {
+  display: none;
+}
+
+.kb-action.disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
 .primary-action:hover,
 .kb-action:hover,
 .export-button:hover,
@@ -131,6 +140,69 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.admin-upload {
+  border: 1px solid #cfe0d8;
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.admin-upload-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--green-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.upload-label {
+  width: 100%;
+}
+
+.admin-refresh {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  background: #f7faf8;
+  color: var(--muted);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-refresh:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.admin-status {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid #edf2ef;
+  padding-top: 8px;
+}
+
+.admin-status span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.admin-status small,
+.admin-upload p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+  word-break: break-all;
 }
 
 .section-label {

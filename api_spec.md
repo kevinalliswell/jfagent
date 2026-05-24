@@ -119,6 +119,8 @@ All successful responses should use this envelope unless streaming is explicitly
 | `POST` | `/api/session/override` | Commit a dashboard manual correction after double-click editing. |
 | `GET` | `/api/session/export` | Run billing check and compile final `.docx` proposal asset. |
 | `GET` | `/api/assets/{asset_id}/download` | Download a generated export asset. |
+| `GET` | `/api/admin/knowledge/status` | Return runtime knowledge index status for seed-trial admins. |
+| `POST` | `/api/admin/knowledge/upload` | Upload a knowledge file, rebuild the local index, and reload backend retrieval. |
 
 ---
 
@@ -351,6 +353,82 @@ The frontend must:
 - Render `triggered_risks` immediately as warning banners/cards.
 - Render backend-provided `knowledge_hits` as citations; the frontend must not recompute retrieval in backend mode.
 - Preserve local manual edit mode if the user is actively editing a field.
+
+---
+
+## Admin Knowledge Upload For Seed Trial
+
+These endpoints are for controlled seed validation only. Production SaaS should replace Nginx Basic Auth with application-level authentication, tenant isolation, upload audit logs, and document permissions.
+
+### GET /api/admin/knowledge/status
+
+Returns the current backend runtime retrieval index status.
+
+```json
+{
+  "ok": true,
+  "server_time": "2026-05-24T10:00:00.000Z",
+  "data": {
+    "rebuild_status": "idle",
+    "index": {
+      "generated_at": "2026-05-24T10:00:00.000Z",
+      "local_embedding_model": "local-hash-v1",
+      "local_embedding_dimensions": 96,
+      "chunk_count": 123,
+      "index_file": "/opt/jfagent/server/generatedKnowledge.json"
+    },
+    "last_uploaded_file": null,
+    "uploaded_file_count": 0
+  }
+}
+```
+
+### POST /api/admin/knowledge/upload
+
+Uploads one supported knowledge file using JSON base64 to avoid multipart dependencies in the seed MVP.
+
+Request:
+
+```json
+{
+  "file_name": "医院机房UPS选型经验.md",
+  "content_base64": "base64-encoded-content"
+}
+```
+
+Rules:
+
+- Supported extensions: `.md`, `.txt`, `.docx`, `.pdf`, `.xlsx`, `.csv`, `.tsv`.
+- Default max decoded file size: `20MB`.
+- Files are saved under `knowledge/uploads/`.
+- Upload triggers `npm run kb:build`.
+- Backend retrieval reloads `server/generatedKnowledge.json` after a successful build.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "server_time": "2026-05-24T10:00:00.000Z",
+  "data": {
+    "rebuild_status": "completed",
+    "uploaded_file": {
+      "original_file_name": "医院机房UPS选型经验.md",
+      "stored_file_name": "医院机房UPS选型经验_20260524100000.md",
+      "stored_path": "/opt/jfagent/knowledge/uploads/医院机房UPS选型经验_20260524100000.md",
+      "size_bytes": 2048,
+      "uploaded_at": "2026-05-24T10:00:00.000Z"
+    },
+    "index": {
+      "generated_at": "2026-05-24T10:00:00.000Z",
+      "local_embedding_model": "local-hash-v1",
+      "local_embedding_dimensions": 96,
+      "chunk_count": 124,
+      "index_file": "/opt/jfagent/server/generatedKnowledge.json"
+    }
+  }
+}
+```
 
 ---
 

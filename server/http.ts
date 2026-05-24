@@ -11,6 +11,7 @@ import {
 import type { ErrorEnvelope } from "./types.js";
 import { createReadStream } from "node:fs";
 import { getRenderedAsset } from "./exportDocument.js";
+import { getKnowledgeAdminStatus, postKnowledgeUpload } from "./knowledgeAdmin.js";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -60,12 +61,14 @@ function sendAssetDownload(response: ServerResponse, assetId: string) {
   return true;
 }
 
-async function readJsonBody(request: IncomingMessage) {
+async function readJsonBody(request: IncomingMessage, maxBytes = 1024 * 1024) {
   const chunks: Buffer[] = [];
+  let size = 0;
   for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    const size = chunks.reduce((sum, item) => sum + item.byteLength, 0);
-    if (size > 1024 * 1024) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    chunks.push(buffer);
+    size += buffer.byteLength;
+    if (size > maxBytes) {
       throw new ApiValidationError("Request body is too large.");
     }
   }
@@ -114,6 +117,25 @@ async function route(request: IncomingMessage, response: ServerResponse) {
         status: "ok",
         sessions: getSessionCount(),
         server_time: now()
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/knowledge/status") {
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: getKnowledgeAdminStatus()
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/knowledge/upload") {
+      const body = await readJsonBody(request, 30 * 1024 * 1024);
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: postKnowledgeUpload(body)
       });
       return;
     }

@@ -9,8 +9,10 @@ export default [
       "node_modules/**",
       "output/**",
       "tmp/**",
+      "knowledge/uploads/**",
       "src/generatedKnowledge.ts",
-      "server/generatedKnowledge.ts"
+      "server/generatedKnowledge.ts",
+      "server/generatedKnowledge.json"
     ]
   },
   js.configs.recommended,

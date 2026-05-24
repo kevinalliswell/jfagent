@@ -29,7 +29,7 @@ knowledge/*.md|txt|docx|pdf|xlsx|csv|tsv
   -> scripts/extract-document-text.py
   -> scripts/extract-spreadsheet-text.py
   -> scripts/build-knowledge-index.mjs
-  -> src/generatedKnowledge.ts and server/generatedKnowledge.ts with local hashed vectors
+  -> src/generatedKnowledge.ts, server/generatedKnowledge.ts, and server/generatedKnowledge.json with local hashed vectors
   -> browser-side retrieval in mock mode OR backend-side retrieval in API mode
 ```
 
@@ -81,12 +81,15 @@ Current endpoints:
 - `POST /api/session/override`
 - `GET /api/session/export`
 - `GET /api/assets/{asset_id}/download`
+- `GET /api/admin/knowledge/status`
+- `POST /api/admin/knowledge/upload`
 
 Current behavior:
 
 - In-memory session store.
 - Mock field extraction and rule hints.
 - Backend-side local hybrid knowledge retrieval for chat responses.
+- Admin-only seed-trial knowledge upload, index rebuild, and backend retrieval hot reload.
 - Manual override precedence.
 - Export payload assembly for Word rendering.
 - First-pass `.docx` rendering through `python-docx`.
@@ -135,7 +138,7 @@ Current important files:
 
 - `server/sessionService.ts`: in-memory session behavior and API response assembly.
 - `server/localVectorSearch.ts`: backend-side local hybrid keyword/vector retrieval for `/api/session/chat`.
-- `server/generatedKnowledge.ts`: generated backend knowledge chunks.
+- `server/generatedKnowledge.json`: generated runtime backend knowledge chunks.
 - `server/exportPayload.ts`: frozen export payload schema, chapter plan builder, placeholder BOM, and schema-level validation.
 - `server/exportDocument.ts`: DOCX rendering orchestration, asset persistence, and file metadata.
 - `server/http.ts`: route handling and JSON envelopes.
@@ -151,7 +154,8 @@ Responsibilities:
 - Chunk source documents.
 - Preserve source metadata.
 - Generate local fixed-dimension hashed vectors.
-- Generate TypeScript indexes for the frontend mock mode and backend API mode.
+- Generate TypeScript indexes for frontend mock mode plus a runtime JSON index for backend API mode.
+- Accept admin uploads under `knowledge/uploads/` during seed trials.
 
 Current supported formats:
 
@@ -210,7 +214,7 @@ dashboard_edit > user_message > upload > button_chip > agent_inference > default
 
 1. User sends a messy project description.
 2. Mock API extracts candidate fields and project signals.
-3. Backend API mode runs local hybrid retrieval in `server/localVectorSearch.ts` and returns `knowledge_hits`; mock mode still uses `src/localVectorSearch.ts`.
+3. Backend API mode runs local hybrid retrieval from the runtime JSON index and returns `knowledge_hits`; mock mode still uses `src/localVectorSearch.ts`.
 4. Rule mock identifies risks and sizing suggestions.
 5. UI updates chat, dashboard fields, risks, and knowledge hits.
 6. User edits dashboard fields when needed.
@@ -224,6 +228,7 @@ In scope for the current MVP:
 
 - Local demo of user flow.
 - Local knowledge citation and retrieval.
+- Admin-only knowledge upload for controlled seed trials.
 - Structured project field capture.
 - Manual override behavior.
 - Export value and willingness validation.
@@ -237,6 +242,7 @@ Out of scope until later phases:
 - True backend session authority.
 - High-fidelity Word/PDF rendering pipeline.
 - Production vector retrieval service and persistent vector database.
+- Application-level authentication and admin permissions beyond Nginx Basic Auth.
 - OCR/photo interpretation.
 - Legal-grade calculation guarantees.
 

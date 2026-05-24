@@ -74,6 +74,37 @@ export interface KnowledgeHit {
   keyword_score?: number;
 }
 
+export interface KnowledgeIndexStatus {
+  rebuild_status: "idle" | "rebuilding";
+  index: {
+    generated_at: string;
+    local_embedding_model: string;
+    local_embedding_dimensions: number;
+    chunk_count: number;
+    index_file: string;
+  };
+  last_uploaded_file: {
+    original_file_name?: string;
+    stored_file_name: string;
+    stored_path: string;
+    size_bytes: number;
+    uploaded_at: string;
+  } | null;
+  uploaded_file_count: number;
+}
+
+export interface KnowledgeUploadResponseData {
+  uploaded_file: {
+    original_file_name: string;
+    stored_file_name: string;
+    stored_path: string;
+    size_bytes: number;
+    uploaded_at: string;
+  };
+  index: KnowledgeIndexStatus["index"];
+  rebuild_status: "completed";
+}
+
 export interface ExportAsset {
   asset_id: string;
   file_name: string;

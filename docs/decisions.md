@@ -275,3 +275,23 @@ Consequences:
 - Generated knowledge remains local and duplicated only as a temporary MVP artifact.
 - `npm run kb:verify` validates both generated indexes stay aligned.
 - Future RAG work should replace `server/localVectorSearch.ts` behind the same API response shape instead of changing frontend citation rendering first.
+
+## D-016: Seed Trial Uses Nginx Basic Auth And Admin Upload
+
+Status: accepted.
+
+Decision:
+
+Use a single-server seed deployment with Nginx serving the built frontend, proxying `/api/` to the Node backend, and protecting access with Basic Auth. Add an admin-only hidden upload panel at `?admin=1`; it sends base64 JSON to `/api/admin/knowledge/upload`, stores files under `knowledge/uploads/`, runs `npm run kb:build`, and hot-reloads the backend runtime retrieval index.
+
+Reason:
+
+The immediate goal is controlled seed-user validation, not production SaaS infrastructure. Basic Auth plus an admin upload path lets users experience the product without command-line knowledge ingestion while avoiding premature account, tenant, and database work.
+
+Consequences:
+
+- Seed users can try the app through a normal HTTPS URL.
+- Admins can upload cleaned internal materials from the browser.
+- `server/generatedKnowledge.json` is the backend runtime retrieval source in API mode.
+- Uploaded knowledge files are operational data and are ignored by git.
+- Production authentication, tenant isolation, document permissions, and persistent vector storage remain future work.

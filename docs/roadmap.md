@@ -43,6 +43,7 @@ Milestones:
 - Move retrieval behind the backend API boundary for backend mode. Done.
 - Define `ExportPayloadV1` for formal Word requirement-sheet inputs. Done.
 - Add placeholder persistence suitable for later tenant/project storage.
+- Add admin-only upload for seed-trial knowledge refresh. Done.
 
 ## Phase 2: Real Knowledge Workflow
 
@@ -55,7 +56,19 @@ Milestones:
 - Add source type filters.
 - Add local embeddings and vector search. Done: first local hashed-vector baseline.
 - Share generated local vector indexes with frontend mock mode and backend API mode. Done.
+- Add backend runtime JSON index and hot reload after admin upload. Done.
 - Add retrieval audit information.
+
+## Phase 2.5: Seed Trial Release
+
+Goal: deploy the MVP behind controlled access and let seed users test the workflow.
+
+Milestones:
+
+- Document single-server Nginx/systemd deployment. Done.
+- Add Basic Auth deployment guidance for seed users and admins. Done.
+- Provide seed-user trial instructions and feedback questions. Done.
+- Deploy to the target server after domain and SSH details are available.
 
 ## Phase 3: Backend Foundation
 

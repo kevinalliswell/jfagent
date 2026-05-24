@@ -16,6 +16,7 @@ Implemented:
 - Local knowledge ingestion for `.md`, `.txt`, `.docx`, and `.pdf`.
 - Quotation/BOQ ingestion for `.xlsx`, `.csv`, and `.tsv`.
 - Hybrid keyword/vector retrieval from generated knowledge chunks: browser-side in mock mode, backend-side in API mode.
+- Admin-only seed-trial knowledge upload through `?admin=1` in backend mode.
 - Local hashed vectors for knowledge chunks; no external embedding API.
 - BOQ/quotation summary panel in the dashboard.
 - Switchable frontend API client: default local mock mode, optional backend API mode.
@@ -115,6 +116,8 @@ Verify generated local vectors:
 npm run kb:verify
 ```
 
+For seed server deployment, see `docs/deployment.md`. For seed-user trial guidance, see `docs/seed-user-trial.md`.
+
 ## Directory Structure
 
 ```text
@@ -130,6 +133,8 @@ npm run kb:verify
 ├── docs/
 │   ├── architecture.md
 │   ├── export-payload-schema.md
+│   ├── deployment.md
+│   ├── seed-user-trial.md
 │   ├── tech-stack.md
 │   ├── roadmap.md
 │   ├── tasks.md
@@ -166,7 +171,15 @@ Then run:
 npm run kb:build
 ```
 
-This generates `src/generatedKnowledge.ts` and `server/generatedKnowledge.ts`, including local hashed vectors used by the mock-mode browser retriever and backend-mode API retriever. Do not edit generated knowledge files by hand.
+This generates `src/generatedKnowledge.ts`, `server/generatedKnowledge.ts`, and `server/generatedKnowledge.json`, including local hashed vectors used by the mock-mode browser retriever and backend-mode API retriever. Do not edit generated knowledge files by hand.
+
+In backend mode, administrators can also open:
+
+```text
+/?admin=1
+```
+
+The hidden admin upload panel saves files under `knowledge/uploads/`, rebuilds the index, and hot-reloads backend retrieval.
 
 ## Development Notes
 
