@@ -1,0 +1,70 @@
+# Backend API Skeleton
+
+This directory contains the first SaaS-oriented API boundary for JF Agent.
+
+## Commands
+
+Build the backend:
+
+```bash
+npm run api:build
+```
+
+Run smoke tests:
+
+```bash
+npm run api:smoke
+```
+
+Start the API server after building:
+
+```bash
+npm run api:start
+```
+
+Default local URL:
+
+```text
+http://localhost:3000
+```
+
+Override the port:
+
+```bash
+PORT=3100 npm run api:start
+```
+
+## Endpoints
+
+- `GET /api/health`
+- `GET /api/session?session_id=<id>`
+- `POST /api/session/chat`
+- `POST /api/session/override`
+- `GET /api/session/export`
+
+The implementation is intentionally lightweight:
+
+- Node.js built-in HTTP server.
+- TypeScript types local to `server/`.
+- In-memory session store.
+- Mock extraction/risk/export behavior that follows `api_spec.md` envelopes.
+- `ExportPayloadV1` builder for Word rendering input.
+- First-pass DOCX renderer using `scripts/render-export-docx.py`.
+- In-memory rendered asset registry served by `GET /api/assets/{asset_id}/download`.
+
+## Current Boundary
+
+The frontend calls through `src/sessionApi.ts`. Default mode still uses `src/mockApi.ts` for stable local demos, and backend mode sends selected session calls to this API skeleton.
+
+To run the frontend against this backend skeleton:
+
+```bash
+npm run api:build
+npm run api:start
+```
+
+In another terminal:
+
+```bash
+npm run dev:backend
+```

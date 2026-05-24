@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据中心机房建设售前智能体 - 种子用户内测工作台</title>
+    <style>
+        :root {
+            --primary-color: #2ecc71; 
+            --blue-color: #3498db;
+            --warning-color: #e74c3c; 
+            --bg-color: #f5f7fa;
+            --text-dark: #2c3e50;
+            --border-color: #dcdfe6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            background-color: #ffffff;
+            height: 60px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .logo-area h1 {
+            font-size: 20px;
+            color: var(--text-dark);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 15px;
+        }
+
+        .btn-update-kb {
+            background-color: var(--blue-color);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 15%;
+            background-color: #ffffff;
+            border-right: 1px solid var(--border-color);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .btn-new-project {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .project-list-title {
+            font-size: 13px;
+            color: #909399;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .project-item {
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            background-color: #f8f9fa;
+            border-left: 4px solid #ccc;
+        }
+
+        .project-item.active {
+            background-color: #ecf5ff;
+            border-left-color: var(--blue-color);
+            font-weight: bold;
+        }
+
+        .chat-container {
+            width: 45%;
+            display: flex;
+            flex-direction: column;
+            background-color: #ffffff;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .chat-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: #fafafa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .msg-bubble {
+            max-width: 85%;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 16px;
+            line-height: 1.5;
+        }
+
+        .msg-user {
+            background-color: #e8f4ff;
+            align-self: flex-end;
+            border-bottom-right-radius: 1px;
+        }
+
+        .msg-ai {
+            background-color: #f4f4f5;
+            align-self: flex-start;
+            border-bottom-left-radius: 1px;
+        }
+
+        .quick-replies {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn-reply {
+            background-color: white;
+            border: 1px solid var(--blue-color);
+            color: var(--blue-color);
+            padding: 6px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        .btn-reply:hover {
+            background-color: var(--blue-color);
+            color: white;
+        }
+
+        .chat-input-area {
+            padding: 15px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .input-box {
+            flex: 1;
+            height: 45px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0 15px;
+            font-size: 16px;
+            outline: none;
+        }
+
+        .btn-voice {
+            background-color: #f4f4f5;
+            border: 1px solid var(--border-color);
+            width: 45px;
+            height: 45px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-send {
+            background-color: var(--blue-color);
+            color: white;
+            border: none;
+            padding: 0 20px;
+            height: 45px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .dashboard {
+            width: 40%;
+            background-color: var(--bg-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+        }
+
+        .dash-card {
+            background: white;
+            border-radius: 8px;
+            padding: 18px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border: 1px solid var(--border-color);
+            transition: all 0.3s;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #f0f2f5;
+            padding-bottom: 8px;
+        }
+
+        .field-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .field-label {
+            font-size: 13px;
+            color: #606266;
+        }
+
+        .field-value {
+            height: 38px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 0 10px;
+            font-size: 14px;
+            background-color: #f8f9fa;
+            color: #303133;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .field-value input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            font-weight: bold;
+            color: var(--blue-color);
+            outline: none;
+            font-size: 14px;
+        }
+
+        .field-value.highlight {
+            border-color: var(--warning-color);
+            background-color: #fffbfa;
+            color: var(--warning-color);
+        }
+
+        .field-value.user-modified {
+            border-color: var(--blue-color);
+            background-color: #f0f8ff;
+            color: var(--blue-color);
+        }
+
+        .card-danger {
+            border: 2px solid var(--warning-color);
+            background-color: #fffbfa;
+        }
+        
+        .danger-item {
+            color: var(--warning-color);
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            line-height: 1.4;
+            padding-left: 15px;
+            position: relative;
+        }
+
+        .danger-item::before {
+            content: "⚠️";
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+
+        .action-zone {
+            margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-top: 10px;
+        }
+
+        .btn-export-main {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            box-shadow: 0 4px 10px rgba(46, 204, 113, 0.3);
+        }
+
+        .btn-feedback {
+            background-color: #f1c40f;
+            color: #fff;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .badge {
+            font-size: 12px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            background-color: #e6a23c;
+            color: white;
+            font-weight: bold;
+        }
+
+        /* 模态弹窗 */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-box {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            width: 450px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: var(--text-dark);
+        }
+
+        .modal-body textarea {
+            width: 100%;
+            height: 120px;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            resize: none;
+            font-size: 14px;
+            margin-bottom: 15px;
+            outline: none;
+        }
+
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .btn-modal-confirm {
+            background: var(--blue-color);
+            color: white;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-modal-cancel {
+            background: #f4f4f5;
+            color: #606266;
+            border: 1px solid var(--border-color);
+            padding: 8px 18px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-area">
+            <h1>⚙️ 机房建设售前智能体 <span style="font-size: 13px; color: #909399; font-weight: normal;">[圈内集成商专属内测版]</span></h1>
+        </div>
+        <div class="user-status">
+            <span>内测体验官：<strong>种子集成商老板/售前</strong></span>
+            <button class="btn-update-kb" onclick="triggerFeedback('知识库更新功能建议')">📁 导入我司中标标书深度喂养</button>
+        </div>
+    </header>
+
+    <main>
+        <section class="sidebar">
+            <button class="btn-new-project" onclick="resetPrototype()">＋ 新建商机摸底</button>
+            <div class="project-list-title">内测模拟商机</div>
+            <div class="project-item active" id="proj-1">🏥 某市人民医院机房建设项目</div>
+            <div class="project-item" onclick="alert('内测期优先锁医院场景，点击[新建商机摸底]可重置体验。')">🏢 区政务云中心扩容项目</div>
+            <div class="project-item" onclick="alert('内测期优先锁医院场景，点击[新建商机摸底]可重置体验。')">🏭 某工厂利旧改造项目</div>
+        </section>
+
+        <section class="chat-container">
+            <div class="chat-header">
+                <div>当前商机：<strong id="project-title-text">某市人民医院信息中心机房</strong></div>
+                <div><span class="badge" id="completion-badge" style="background-color: #e6a23c;">采集率 40%</span></div>
+            </div>
+            
+            <div class="chat-messages" id="chatMessages">
+                <div class="msg-bubble msg-ai">
+                    尊敬的老板您好！我是您的**机房建设售前AI助理**。😊
+                    <br><br>
+                    请像发微信一样，把您刚拿到的客户凌乱需求、或者口头交待的情况发给我。
+                    <br><br>
+                    💡 *你可以试着点击下方我帮您准备的【模拟销售带回的线索】直接发送：*
+                    <div class="quick-replies" id="step-1-replies">
+                        <button class="btn-reply" onclick="processStep1('客户是个医院，准备搞个50平米的机房，在3楼，有客梯。要求用国产的UPS，后备时间必须要撑够2小时。')">💬 点击发送：医院/50平/3楼/国产UPS延时2小时</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <button class="btn-voice" title="语音输入" onclick="alert('【内测提示】真实系统将完美集成微信语音输入。当前原型请直接点击泡泡中的小字，或在右侧输入框打字体验。')">🎙️</button>
+                <input type="text" class="input-box" id="userInput" placeholder="在这里输入或修改需求（例如：“客户预算30万”），回车发送..." onkeydown="if(event.key === 'Enter') handleUserCustomInput()">
+                <button class="btn-send" onclick="handleUserCustomInput()">发送</button>
+            </div>
+        </section>
+
+        <section class="dashboard">
+            
+            <div class="dash-card card-danger" id="dangerCard" style="display: none;">
+                <div class="card-title" style="color: var(--warning-color); border-bottom-color: #fde2e2;">🚨 圈内隐性施工风险特别提示 (核心价值)</div>
+                <div id="dangerContent"></div>
+            </div>
+
+            <div class="dash-card">
+                <div class="card-title">
+                    <span>📝 自动提取的需求要素</span>
+                    <span style="font-size: 12px; color: #909399; font-weight: normal;">💡双击数值可直接强行强改</span>
+                </div>
+                <div class="field-grid">
+                    <div class="field-group">
+                        <span class="field-label">客户名称</span>
+                        <div class="field-value" id="f_name" ondblclick="makeEditable(this, 'customer_name')">某市人民医院</div>
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">客户行业</span>
+                        <div class="field-value" id="f_ind" ondblclick="makeEditable(this, 'industry')">医疗</div>
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">机房面积</span>
+                        <div class="field-value" id="f_area" ondblclick="makeEditable(this, 'room_area')">-</div>
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">所在楼层</span>
+                        <div class="field-value" id="f_floor" ondblclick="makeEditable(this, 'room_floor')">-</div>
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">计划机柜数</span>
+                        <div class="field-value" id="f_rack" ondblclick="makeEditable(this, 'rack_count')">-</div>
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">UPS后备时间</span>
+                        <div class="field-value" id="f_ups" ondblclick="makeEditable(this, 'ups_backup')">-</div>
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">品牌偏好</span>
+                        <div class="field-value" id="f_brand" ondblclick="makeEditable(this, 'brand_preference')">-</div>
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">项目预算范围</span>
+                        <div class="field-value" id="f_budget" ondblclick="makeEditable(this, 'budget_range')">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dash-card" id="suggestCard" style="display: none;">
+                <div class="card-title">💡 智能体配置与测算建议方案</div>
+                <div id="suggestContent" style="font-size: 14px; line-height: 1.6; color: #606266;"></div>
+            </div>
+
+            <div class="action-zone">
+                <button class="btn-export-main" onclick="testRoiPricing()">🟢 一键生成排版完备的技术方案书 (.Word)</button>
+                <button class="btn-feedback" onclick="triggerFeedback('内测整体吐槽与功能加码')">💬 我是圈内人，我要吐槽/提新需求</button>
+            </div>
+        </section>
+    </main>
+
+    <div class="modal-overlay" id="feedbackModal">
+        <div class="modal-box">
+            <div class="modal-title" id="modalTitle">用户反馈箱</div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: #606266; margin-bottom: 10px;" id="modalDesc">告诉我们您的真实干活习惯，帮我们改得更好用：</p>
+                <textarea id="feedbackText" placeholder="比如：你们漏掉了XX系统、报价估算太死板、我们圈子里不这么叫..."></textarea>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-modal-cancel" onclick="closeFeedback()">取消</button>
+                <button class="btn-modal-confirm" onclick="submitFeedback()">提交建议</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 0;
+
+        function appendMessage(text, sender) {
+            const container = document.getElementById('chatMessages');
+            const bubble = document.createElement('div');
+            bubble.className = `msg-bubble msg-${sender}`;
+            bubble.innerHTML = text;
+            container.appendChild(bubble);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // 步骤一：处理首次核心凌乱输入
+        function processStep1(text) {
+            document.getElementById('step-1-replies').style.display = 'none';
+            appendMessage(text, 'user');
+            
+            // 模拟动态提取过程
+            setTimeout(() => {
+                // 刷新右侧数据字段
+                document.getElementById('f_area').innerText = "50 ㎡ ✏️";
+                document.getElementById('f_floor').innerText = "3 楼 ✏️";
+                document.getElementById('f_ups').innerText = "120 分钟 ✏️";
+                document.getElementById('f_brand').innerText = "国产优先 ✏️";
+                document.getElementById('f_rack').innerHTML = "待确认(追问中) ❓";
+                document.getElementById('f_rack').className = "field-value highlight";
+                
+                document.getElementById('completion-badge').innerText = "采集率 75%";
+                document.getElementById('completion-badge').style.background = "#3498db";
+
+                // 触发极具圈内价值的警告红框
+                document.getElementById('dangerCard').style.display = "block";
+                document.getElementById('dangerContent').innerHTML = `
+                    <div class="danger-item">【建筑承重风险】：蓄电池组（120分钟延时）极其沉重。项目在 **3楼**，原有大楼承重极大概率不够，必须追加“钢结构散载加固”方案！</div>
+                    <div class="danger-item">【特种吊装风险】：精密空调一体机普遍超2米，请务必核实3楼客梯能否装下，否则需加外墙吊装预算！
+                `;
+
+                // 弹出AI追问
+                appendMessage(`
+                    收到！老板，右侧看板已帮您**自动抓取**好核心信息，并自动亮红提示了 **[3楼承重] 与 [空调吊装]** 两大施工风险。
+                    <br><br>
+                    师傅，**还差一个最关键的规划数据**：请问客户计划放多少个机柜？如果不知道，告诉我大概放多少服务器也行。
+                    <br>
+                    <div class="quick-replies">
+                        <button class="btn-reply" onclick="processStep2('计划放置 10 个标准机柜')">选择：计划放置 10 个标准机柜</button>
+                        <button class="btn-reply" onclick="processStep2('现在不确定，大约 20~30 台服务器吧')">选择：大约 20~30 台服务器</button>
+                    </div>
+                `, 'ai');
+                currentStep = 1;
+            }, 1000);
+        }
+
+        // 步骤二：锁定机柜数，吐出初步BOM测算建议
+        function processStep2(text) {
+            appendMessage(text, 'user');
+            setTimeout(() => {
+                document.getElementById('f_rack').innerText = "10 个 ✏️";
+                document.getElementById('f_rack').className = "field-value";
+                
+                document.getElementById('completion-badge').innerText = "采集率 95%";
+                document.getElementById('completion-badge').style.background = "var(--primary-color)";
+
+                // 展现智能建议卡片
+                document.getElementById('suggestCard').style.display = "block";
+                document.getElementById('suggestContent').innerHTML = `
+                    • <strong>配电系统：</strong> 自动推荐 40kVA 模块化UPS（1+1冗余配置），匹配 128节 100AH 蓄电池。<br>
+                    • <strong>空调系统：</strong> 50㎡拟配 2台 25kW 风冷精密空调（N+1），自动走上走线布局。<br>
+                    • <strong>装修与加固：</strong> 方案书已自动嵌入微模块钢结构防静电地板及前述3楼散载加固工程。
+                `;
+
+                appendMessage(`
+                    🎉 **太棒了，核心数据已全部对齐！** <br><br>
+                    我已经帮您写好了全套方案的技术框架，并融入了医疗行业规范和3楼散载工程的特殊措辞。
+                    <br><br>
+                    老板，您可以直接点击右下角**大绿色按钮【一键生成完备技术方案书】**直接下载完美的 Word 标书原件去跟客户谈了！
+                `, 'ai');
+                currentStep = 2;
+            }, 1000);
+        }
+
+        // 自由打字输入模拟
+        function handleUserCustomInput() {
+            const input = document.getElementById('userInput');
+            const val = input.value.trim();
+            if(!val) return;
+
+            appendMessage(val, 'user');
+            input.value = '';
+
+            setTimeout(() => {
+                if (val.includes('预算') || val.includes('万') || val.includes('钱')) {
+                    document.getElementById('f_budget').innerText = val + " ✏️";
+                    document.getElementById('f_budget').className = "field-value user-modified";
+                    appendMessage("收到预算额度！右侧看板已帮您锁定。方案在导出时，系统将在设备选型清单中自动为您匹配性价比最高、最容易中选的国产高毛利产品平替包。", "ai");
+                } else if(currentStep === 0) {
+                    processStep1(val);
+                } else {
+                    appendMessage("老板，这个细节我也已经帮您记下了！在生成技术方案书时，对应的子系统会自动增加这部分的方案描述。您现在可以随时点击右下角按钮测试Word导出功能！", "ai");
+                }
+            }, 800);
+        }
+
+        // 防呆设计：双击字段改数字
+        function makeEditable(element, fieldCode) {
+            if (element.querySelector('input')) return;
+            const originalText = element.innerText.replace('✏️', '').replace('❓', '').trim();
+            element.innerHTML = `<input type="text" value="${originalText}">`;
+            const input = element.querySelector('input');
+            input.focus();
+            input.select();
+
+            input.onblur = function() {
+                let finalVal = input.value.trim();
+                if(!finalVal || finalVal === '-') finalVal = "待确认";
+                element.className = "field-value user-modified";
+                element.innerHTML = `${finalVal} ✏️`;
+                appendMessage(`🛠️ 检测到您手动将右侧看板的字段强行修改为：<strong>"${finalVal}"</strong>。AI已实时重算，并已在后台无偏性地修正了全套Word标书的对应参数。`, 'ai');
+            };
+            
+            input.onkeydown = function(e) {
+                if(e.key === 'Enter') input.blur();
+            };
+        }
+
+        // 定价与意愿测试弹窗
+        function testRoiPricing() {
+            document.getElementById('modalTitle').innerText = "🟢 一键生成 Word 技术方案原件";
+            document.getElementById('modalDesc').innerHTML = `
+                <strong style="color:var(--primary-color);">【内测功能验证】</strong><br>
+                系统已自动帮您组装好了50页排版精美、带目录的公司标准技术方案书（内含3楼加加固及40kVA UPS设计）。<br><br>
+                <strong>💰 商业意愿摸底调查：</strong><br>
+                未来系统正式上线后，每自动吐出一套这样“能直接拿去跟客户交流或投标”的完备Word方案，<strong>收费 99 元（或消耗1个项目点）</strong>，您作为集成商老板或核心售前，觉得这个价格划算吗？欢迎留下您的定价意见或看法：
+            `;
+            document.getElementById('feedbackText').value = "";
+            document.getElementById('feedbackText').placeholder = "比如：99元很便宜，能省大几百人工费 / 希望按年包干 / 方案只要写得准，300元一次我也掏...";
+            document.getElementById('feedbackModal').style.display = 'flex';
+        }
+
+        // 唤起主动吐槽
+        function triggerFeedback(type) {
+            document.getElementById('modalTitle').innerText = "💬 圈内集成商深度吐槽箱";
+            document.getElementById('modalDesc').innerHTML = `类型：<strong>${type}</strong><br>圈内人不讲客套话。请直接留下您最真实、最毒舌的吐槽。比如功能哪里鸡肋、漏掉了什么系统、黑话翻译不准等：`;
+            document.getElementById('feedbackText').value = "";
+            document.getElementById('feedbackText').placeholder = "请输入您的吐槽意见，哪怕是一句话也行...";
+            document.getElementById('feedbackModal').style.display = 'flex';
+        }
+
+        function closeFeedback() {
+            document.getElementById('feedbackModal').style.display = 'none';
+        }
+
+        function submitFeedback() {
+            const val = document.getElementById('feedbackText').value.trim();
+            if(!val) {
+                alert('写几个字再提交呗，哪怕是骂我们的也行！');
+                return;
+            }
+            alert('🎉 感谢老板的倾情反馈！我们已经将您的这条极具含金量的行业经验录入了后台系统的优化排期表中。');
+            closeFeedback();
+        }
+
+        function resetPrototype() {
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+server-dist/
+output/
+tmp/
+
+src/generatedKnowledge.ts
+server/generatedKnowledge.ts
+
+.DS_Store
+*.log

@@ -1,0 +1,39 @@
+{
+  "name": "jfagent-workstation",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "kb:build": "node scripts/build-knowledge-index.mjs",
+    "kb:verify": "node scripts/verify-knowledge-vector-index.mjs",
+    "api:build": "npm run kb:build && tsc -p server/tsconfig.json",
+    "api:start": "node server-dist/index.js",
+    "api:smoke": "npm run api:build && node server-dist/smoke.js",
+    "lint": "eslint \"{src,server}/*.{ts,tsx}\" vite.config.ts eslint.config.js",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"*.{ts,js,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"*.{ts,js,json}\"",
+    "test": "npm run api:smoke",
+    "check": "npm run lint && npm run format:check && npm run build && npm run kb:verify && npm run test",
+    "dev": "npm run kb:build && vite --host 0.0.0.0",
+    "dev:backend": "npm run kb:build && VITE_SESSION_API_MODE=backend VITE_API_BASE_URL=http://localhost:3000 vite --host 0.0.0.0",
+    "build": "npm run kb:build && tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^7.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "typescript-eslint": "^8.59.4"
+  }
+}
