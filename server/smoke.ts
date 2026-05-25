@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createApiServer } from "./http.js";
 
 const server = createApiServer();
@@ -13,6 +14,64 @@ if (!address || typeof address === "string") {
 }
 
 const baseUrl = `http://127.0.0.1:${address.port}`;
+
+type StubHandler = (
+  body: Record<string, unknown>,
+  response: ServerResponse,
+  requestIndex: number
+) => void | Promise<void>;
+
+async function readRequestBody(request: IncomingMessage) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+}
+
+async function startOpenAiStub(handler: StubHandler) {
+  const requests: Record<string, unknown>[] = [];
+  const stub = createServer((request, response) => {
+    void (async () => {
+      if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+        response.writeHead(404, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "not found" }));
+        return;
+      }
+      const body = await readRequestBody(request);
+      requests.push(body);
+      await handler(body, response, requests.length);
+    })();
+  });
+  await new Promise<void>((resolve) => {
+    stub.listen(0, "127.0.0.1", resolve);
+  });
+  const stubAddress = stub.address();
+  if (!stubAddress || typeof stubAddress === "string") {
+    throw new Error("Could not allocate OpenAI stub port.");
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${stubAddress.port}/v1`,
+    requests,
+    close: () => new Promise<void>((resolve) => stub.close(() => resolve()))
+  };
+}
+
+function sendStubChatContent(response: ServerResponse, content: unknown) {
+  response.writeHead(200, { "content-type": "application/json" });
+  response.end(
+    JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: typeof content === "string" ? content : JSON.stringify(content)
+          }
+        }
+      ]
+    })
+  );
+}
 
 async function requestJson(path: string, init?: RequestInit) {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -138,6 +197,134 @@ try {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
   assert.equal(docx.body.subarray(0, 2).toString("utf8"), "PK");
+
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  const previousModel = process.env.OPENAI_MODEL;
+
+  const llmStub = await startOpenAiStub((_body, response) => {
+    sendStubChatContent(response, {
+      ai_response: "LLM售前回复：先按医疗机房场景整理，规模口径我已补齐，报价仍需人工确认。",
+      quick_replies: ["确认改造范围", "补充预算上限"],
+      field_candidates: [
+        {
+          field_code: "project_type",
+          value: "renovation",
+          confidence: 0.82,
+          needs_confirmation: true
+        },
+        {
+          field_code: "rack_count",
+          value: 99,
+          confidence: 0.88,
+          needs_confirmation: false
+        }
+      ]
+    });
+  });
+
+  try {
+    process.env.OPENAI_API_KEY = "test-key";
+    process.env.OPENAI_BASE_URL = llmStub.baseUrl;
+    process.env.OPENAI_MODEL = "stub-model";
+
+    const llmChat = await requestJson("/api/session/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: "sess_llm",
+        message_type: "text",
+        content: "某医院机房，计划6个机柜，国产优先"
+      })
+    });
+    assert.equal(llmChat.status, 200);
+    const llmChatData = llmChat.body.data as {
+      ai_response: string;
+      quick_replies: string[];
+      updated_fields: Record<string, unknown>;
+      field_patches: Array<{ field_code: string; new_value: unknown; source: string }>;
+    };
+    assert.ok(llmChatData.ai_response.startsWith("LLM售前回复"));
+    assert.deepEqual(llmChatData.quick_replies, ["确认改造范围", "补充预算上限"]);
+    assert.equal(llmChatData.updated_fields.project_type, "renovation");
+    assert.equal(llmChatData.updated_fields.rack_count, 6);
+    assert.equal(
+      llmChatData.field_patches.find((patch) => patch.field_code === "project_type")?.source,
+      "agent_inference"
+    );
+    assert.equal(llmChatData.field_patches.find((patch) => patch.field_code === "rack_count")?.new_value, 6);
+    assert.equal(llmStub.requests[0].model, "stub-model");
+    assert.deepEqual(llmStub.requests[0].response_format, { type: "json_object" });
+  } finally {
+    await llmStub.close();
+    process.env.OPENAI_API_KEY = previousApiKey;
+    process.env.OPENAI_BASE_URL = previousBaseUrl;
+    process.env.OPENAI_MODEL = previousModel;
+  }
+
+  const retryStub = await startOpenAiStub((_body, response, requestIndex) => {
+    if (requestIndex === 1) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "response_format is unsupported" } }));
+      return;
+    }
+    sendStubChatContent(response, {
+      ai_response: "JSON mode retry worked.",
+      quick_replies: ["继续"],
+      field_candidates: []
+    });
+  });
+
+  try {
+    process.env.OPENAI_API_KEY = "test-key";
+    process.env.OPENAI_BASE_URL = retryStub.baseUrl;
+
+    const retryChat = await requestJson("/api/session/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: "sess_llm_retry",
+        message_type: "text",
+        content: "某中心机房，8个机柜"
+      })
+    });
+    assert.equal(retryChat.status, 200);
+    assert.equal((retryChat.body.data as { ai_response: string }).ai_response, "JSON mode retry worked.");
+    assert.equal(retryStub.requests.length, 2);
+    assert.ok("response_format" in retryStub.requests[0]);
+    assert.ok(!("response_format" in retryStub.requests[1]));
+  } finally {
+    await retryStub.close();
+    process.env.OPENAI_API_KEY = previousApiKey;
+    process.env.OPENAI_BASE_URL = previousBaseUrl;
+    process.env.OPENAI_MODEL = previousModel;
+  }
+
+  const fallbackStub = await startOpenAiStub((_body, response) => {
+    sendStubChatContent(response, "not-json");
+  });
+
+  try {
+    process.env.OPENAI_API_KEY = "test-key";
+    process.env.OPENAI_BASE_URL = fallbackStub.baseUrl;
+
+    const fallbackChat = await requestJson("/api/session/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: "sess_llm_fallback",
+        message_type: "text",
+        content: "某工厂机房，5个机柜"
+      })
+    });
+    assert.equal(fallbackChat.status, 200);
+    assert.equal(
+      (fallbackChat.body.data as { ai_response: string }).ai_response,
+      "已收到项目线索并同步到后端会话状态。当前已具备初步规模口径，可继续补充预算或触发导出意愿验证。"
+    );
+  } finally {
+    await fallbackStub.close();
+    process.env.OPENAI_API_KEY = previousApiKey;
+    process.env.OPENAI_BASE_URL = previousBaseUrl;
+    process.env.OPENAI_MODEL = previousModel;
+  }
 
   console.log("API smoke test passed.");
 } finally {

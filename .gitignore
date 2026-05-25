@@ -14,3 +14,4 @@ server/generatedKnowledge.json
 .env
 .env.*
 !.env.caddy.example
+!.env.api.example

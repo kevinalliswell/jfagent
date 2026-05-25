@@ -82,6 +82,22 @@ Current MVP:
 - No external embedding API.
 - No persistent vector database.
 
+### LLM Agent
+
+Current backend mode:
+
+- OpenAI-compatible Chat Completions over Node built-in `fetch`.
+- Runtime configuration through `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, and `OPENAI_TIMEOUT_MS`.
+- Default base URL: `https://api.openai.com/v1`.
+- xingwan/New API relay example: `OPENAI_BASE_URL=https://xingwan.store/v1`.
+- No SDK dependency, streaming, tools/function calling, or Responses API in the first version.
+
+Why:
+
+- Keeps the first real AI step provider-compatible and small.
+- Lets seed deployment use relay platforms without baking provider code into the app.
+- Preserves current rule/RAG behavior when no key is configured or the provider is unavailable.
+
 ### Seed Deployment
 
 Selected for the seed trial:
@@ -166,7 +182,7 @@ npm run api:start
 
 - No browser/UI automation test runner is configured.
 - Backend runtime is only a skeleton and is available through optional frontend backend mode.
-- No real LLM integration exists.
+- Real LLM integration is first-pass and uses low-precedence field candidates only.
 - No real embedding model or vector database exists.
 - No legacy `.xls` ingestion exists.
 - No automated visual DOCX render QA exists until LibreOffice/`soffice` is installed.

@@ -15,6 +15,7 @@ import type {
 } from "./types.js";
 import { buildExportPayload } from "./exportPayload.js";
 import { renderExportDocx } from "./exportDocument.js";
+import { generateAgentLlmOutput } from "./llmClient.js";
 import { searchKnowledge } from "./localVectorSearch.js";
 
 const sessions = new Map<string, BackendSession>();
@@ -49,6 +50,8 @@ const editableFields = new Set([
   "expected_delivery_date",
   "brand_preference"
 ]);
+
+const llmProtectedSources = new Set(["dashboard_edit", "user_message", "upload", "button_chip"]);
 
 const riskFloorLoading: RiskFlag = {
   id: "RULE_FLOOR_LOADING",
@@ -209,6 +212,16 @@ function makePatch(
   };
 }
 
+function normalizeAgentCandidateValue(fieldCode: string, value: string | number | null) {
+  if (value === null || value === "") return null;
+  if (!numericFields.has(fieldCode)) return value;
+
+  const normalized = typeof value === "number" ? value : extractNumber(String(value), null);
+  if (normalized === null) return null;
+  if (fieldCode === "budget_range_high_rmb" && normalized < 1000) return normalized * 10000;
+  return normalized;
+}
+
 function buildSuggestion(rackCount: number, stale = false): SuggestionSummary {
   const itLoad = rackCount * 3;
   const upsRaw = itLoad * 1.25;
@@ -244,7 +257,50 @@ function inferState(session: BackendSession): { fsm_state: FsmState; export_stat
   return { fsm_state: "S1_CORE_EXTRACTION", export_status: "draft" };
 }
 
-export function postSessionChat(request: ChatRequest) {
+function fallbackAgentResponse(session: BackendSession) {
+  const hasScale = Boolean(session.dashboard_fields.rack_count?.value);
+  return {
+    aiResponse: hasScale
+      ? "已收到项目线索并同步到后端会话状态。当前已具备初步规模口径，可继续补充预算或触发导出意愿验证。"
+      : "已收到项目线索并同步到后端会话状态。现在还差一个最影响报价的规模口径：大概多少机柜或服务器？",
+    quickReplies: hasScale
+      ? ["生成Word需求表", "补充项目预算"]
+      : ["计划放置 10 个标准机柜", "不确定，按面积估算"]
+  };
+}
+
+function applyAgentFieldCandidates(
+  session: BackendSession,
+  candidates: Array<{
+    field_code: string;
+    value: string | number | null;
+    confidence: number;
+    needs_confirmation: boolean;
+  }>
+) {
+  const patches: FieldPatch[] = [];
+  for (const candidate of candidates) {
+    const current = session.dashboard_fields[candidate.field_code];
+    if (!current) continue;
+    if (llmProtectedSources.has(current.source)) continue;
+
+    const normalizedValue = normalizeAgentCandidateValue(candidate.field_code, candidate.value);
+    if (normalizedValue === null) continue;
+    patches.push(
+      makePatch(
+        session,
+        candidate.field_code,
+        normalizedValue,
+        "agent_inference",
+        candidate.confidence,
+        candidate.needs_confirmation
+      )
+    );
+  }
+  return patches;
+}
+
+export async function postSessionChat(request: ChatRequest) {
   if (!request.session_id) throw new ApiValidationError("session_id is required.");
   if (!request.content?.trim()) throw new ApiValidationError("content is required.");
   if (!["text", "voice", "file"].includes(request.message_type)) {
@@ -288,26 +344,35 @@ export function postSessionChat(request: ChatRequest) {
   if (budgetWan)
     patches.push(makePatch(session, "budget_range_high_rmb", budgetWan * 10000, "user_message", 0.85));
 
+  session.knowledge_hits = knowledgeHits;
+  session.suggestion = Number(session.dashboard_fields.rack_count?.value || 0)
+    ? buildSuggestion(Number(session.dashboard_fields.rack_count?.value || 0))
+    : null;
+  evaluateRisks(session);
+
+  const fallback = fallbackAgentResponse(session);
+  const llmOutput = await generateAgentLlmOutput({
+    userText: text,
+    session,
+    patches,
+    knowledgeHits,
+    risks: session.triggered_risks
+  });
+  const llmPatches = llmOutput ? applyAgentFieldCandidates(session, llmOutput.field_candidates) : [];
+  patches.push(...llmPatches);
+
   const finalRackCount = Number(session.dashboard_fields.rack_count?.value || 0);
   session.suggestion = finalRackCount ? buildSuggestion(finalRackCount) : null;
   evaluateRisks(session);
   const state = inferState(session);
   session.fsm_state = state.fsm_state;
   session.export_status = state.export_status;
-  session.knowledge_hits = knowledgeHits;
   session.state_version += 1;
   session.updated_at = now();
 
-  const hasScale = Boolean(session.dashboard_fields.rack_count?.value);
-  const aiResponse = hasScale
-    ? "已收到项目线索并同步到后端会话状态。当前已具备初步规模口径，可继续补充预算或触发导出意愿验证。"
-    : "已收到项目线索并同步到后端会话状态。现在还差一个最影响报价的规模口径：大概多少机柜或服务器？";
-
   const data: ChatResponseData = {
-    ai_response: aiResponse,
-    quick_replies: hasScale
-      ? ["生成Word需求表", "补充项目预算"]
-      : ["计划放置 10 个标准机柜", "不确定，按面积估算"],
+    ai_response: llmOutput?.ai_response ?? fallback.aiResponse,
+    quick_replies: llmOutput?.quick_replies.length ? llmOutput.quick_replies : fallback.quickReplies,
     updated_fields: Object.fromEntries(patches.map((patch) => [patch.field_code, patch.new_value])),
     field_patches: patches,
     triggered_risks: session.triggered_risks,

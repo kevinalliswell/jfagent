@@ -27,6 +27,7 @@ Ask the operator for:
 - GHCR read token with `read:packages`.
 - Seed Basic Auth username and password.
 - Admin Basic Auth username and password.
+- Optional OpenAI-compatible provider values: base URL, API key, and model.
 
 Do not print tokens or plaintext passwords back to the terminal after collecting them.
 
@@ -62,6 +63,7 @@ Collect these values from me:
 - SEED_BASIC_AUTH_PASSWORD
 - ADMIN_BASIC_AUTH_USER
 - ADMIN_BASIC_AUTH_PASSWORD
+- Optional: OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL
 
 Deployment tasks:
 1. Inspect the OS and whether Docker Compose v2 is available.
@@ -71,18 +73,19 @@ Deployment tasks:
 5. Generate Caddy bcrypt hashes for the seed and admin passwords with:
    docker run --rm caddy:2-alpine caddy hash-password --plaintext 'PASSWORD'
 6. Create .env.caddy with DOMAIN, users, and single-quoted bcrypt hashes.
-7. Login to GHCR:
+7. If I provide OpenAI-compatible provider values, create .env.api as specified below; otherwise omit it so the app uses fallback mode.
+8. Login to GHCR:
    echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u kevinalliswell --password-stdin
-8. Run:
+9. Run:
    docker compose -f compose.seed.yml pull
    docker compose -f compose.seed.yml up -d
-9. Verify:
+10. Verify:
    docker compose -f compose.seed.yml ps
    curl -u SEED_USER:SEED_PASSWORD https://DOMAIN/api/health
    curl -u ADMIN_USER:ADMIN_PASSWORD https://DOMAIN/api/admin/knowledge/status
-10. If HTTPS is not ready yet, inspect Caddy logs and DNS A record status:
+11. If HTTPS is not ready yet, inspect Caddy logs and DNS A record status:
    docker compose -f compose.seed.yml logs --tail=120 web
-11. Report the final URL, service status, image tags, volume names, and any remaining manual action.
+12. Report the final URL, service status, image tags, volume names, and any remaining manual action.
 
 compose.seed.yml content:
 
@@ -90,6 +93,9 @@ services:
   api:
     image: ${JFAGENT_API_IMAGE:-ghcr.io/kevinalliswell/jfagent-api:latest}
     restart: unless-stopped
+    env_file:
+      - path: .env.api
+        required: false
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
@@ -133,6 +139,13 @@ SEED_BASIC_AUTH_USER=SEED_USER_VALUE
 SEED_BASIC_AUTH_HASH='SEED_BCRYPT_HASH_VALUE'
 ADMIN_BASIC_AUTH_USER=ADMIN_USER_VALUE
 ADMIN_BASIC_AUTH_HASH='ADMIN_BCRYPT_HASH_VALUE'
+
+.env.api format, optional:
+
+OPENAI_BASE_URL=https://xingwan.store/v1
+OPENAI_API_KEY=PROVIDER_TOKEN_VALUE
+OPENAI_MODEL=PROVIDER_MODEL_VALUE
+OPENAI_TIMEOUT_MS=12000
 
 Acceptance criteria:
 - https://DOMAIN/ loads behind seed Basic Auth.
