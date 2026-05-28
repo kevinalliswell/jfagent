@@ -153,8 +153,12 @@ async function route(request: IncomingMessage, response: ServerResponse) {
     }
 
     if (request.method === "POST" && url.pathname === "/api/projects") {
-      const body = (await readJsonBody(request)) as CreateProjectRequest;
-      const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : undefined;
+      const body = (await readJsonBody(request)) as CreateProjectRequest | null;
+      const projectRequest = body && typeof body === "object" ? body : {};
+      const name =
+        typeof projectRequest.name === "string" && projectRequest.name.trim().length > 0
+          ? projectRequest.name.trim()
+          : undefined;
       sendJson(response, 200, {
         ok: true,
         server_time: now(),

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createApiServer } from "./http.js";
+import { createProject, getProject } from "./projectService.js";
 
 const server = createApiServer();
 
@@ -76,13 +77,19 @@ try {
   assert.equal(fetchedProjectData.project.project_name, "医院老机房改造一期");
   assert.equal(fetchedProjectData.project.primary_session_id, null);
 
-  fetchedProjectData.project.project_name = "mutated locally";
-  const refetchedProject = await requestJson(`/api/projects/${projectId}`);
-  assert.equal(refetchedProject.status, 200);
-  const refetchedProjectData = refetchedProject.body.data as {
-    project: { project_name: string };
-  };
-  assert.equal(refetchedProjectData.project.project_name, "医院老机房改造一期");
+  const serviceProject = createProject("服务边界项目");
+  const firstRead = getProject(serviceProject.project_id);
+  assert.ok(firstRead);
+  if (!firstRead) {
+    throw new Error("Expected project to exist after creation.");
+  }
+  firstRead.project_name = "mutated locally";
+  const secondRead = getProject(serviceProject.project_id);
+  assert.ok(secondRead);
+  if (!secondRead) {
+    throw new Error("Expected project to exist on second read.");
+  }
+  assert.equal(secondRead.project_name, "服务边界项目");
 
   const missingProject = await requestJson("/api/projects/proj_missing");
   assert.equal(missingProject.status, 404);
