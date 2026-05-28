@@ -565,9 +565,7 @@ export function getSessionSnapshot(sessionId: string) {
       ? {
           project_id: project.project_id,
           project_name: project.project_name,
-          stage: project.stage,
-          primary_session_id: project.primary_session_id,
-          updated_at: project.updated_at
+          stage: project.stage
         }
       : null
   } satisfies SessionSnapshotData;

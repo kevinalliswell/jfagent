@@ -177,7 +177,7 @@ export interface ErrorEnvelope {
 
 export interface SessionSnapshotData {
   session: SessionSnapshotSession;
-  project: ProjectSummary | null;
+  project: ProjectContext | null;
 }
 
 export interface SessionSnapshotSession {
