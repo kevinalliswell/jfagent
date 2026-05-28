@@ -12,6 +12,7 @@ import type {
   RiskFlag,
   SuggestionSummary,
   SessionSnapshotData,
+  SessionSnapshotSession,
   SuccessEnvelope
 } from "./types.js";
 import { buildExportPayload } from "./exportPayload.js";
@@ -92,6 +93,43 @@ function projectSessionBoundError() {
   error.status = 409;
   error.code = "PROJECT_SESSION_BOUND";
   return error;
+}
+
+function sessionNotFoundError() {
+  const error = new ApiValidationError("session_id was not found.");
+  error.status = 404;
+  error.code = "SESSION_NOT_FOUND";
+  return error;
+}
+
+function cloneDashboardFields(fields: Record<string, DashboardField>) {
+  return Object.fromEntries(Object.entries(fields).map(([code, field]) => [code, { ...field }]));
+}
+
+function cloneKnowledgeHits(hits: BackendSession["knowledge_hits"]) {
+  return hits.map((hit) => ({ ...hit }));
+}
+
+function cloneTriggeredRisks(risks: BackendSession["triggered_risks"]) {
+  return risks.map((risk) => ({ ...risk }));
+}
+
+function cloneSuggestion(suggestion: BackendSession["suggestion"]) {
+  return suggestion ? { ...suggestion } : null;
+}
+
+function toSessionSnapshotSession(session: BackendSession): SessionSnapshotSession {
+  return {
+    session_id: session.session_id,
+    project_id: session.project_id,
+    state_version: session.state_version,
+    fsm_state: session.fsm_state,
+    export_status: session.export_status,
+    dashboard_fields: cloneDashboardFields(session.dashboard_fields),
+    triggered_risks: cloneTriggeredRisks(session.triggered_risks),
+    knowledge_hits: cloneKnowledgeHits(session.knowledge_hits),
+    suggestion: cloneSuggestion(session.suggestion)
+  };
 }
 
 function response<T>(session: BackendSession, data: T): SuccessEnvelope<T> {
@@ -515,14 +553,11 @@ export function getSessionExport(params: {
 export function getSessionSnapshot(sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) {
-    const error = new ApiValidationError("session_id was not found.");
-    error.status = 404;
-    error.code = "NOT_FOUND";
-    throw error;
+    throw sessionNotFoundError();
   }
   const project = session.project_id ? getProject(session.project_id) : null;
   return {
-    session,
+    session: toSessionSnapshotSession(session),
     project: project
       ? {
           project_id: project.project_id,

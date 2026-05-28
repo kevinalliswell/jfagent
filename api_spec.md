@@ -163,6 +163,8 @@ Required query parameters:
 
 `project` is `null` when the session is unbound.
 
+Unknown session ids return `404` with `SESSION_NOT_FOUND`.
+
 ---
 
 ## 2. POST /api/session/chat

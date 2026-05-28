@@ -176,8 +176,20 @@ export interface ErrorEnvelope {
 }
 
 export interface SessionSnapshotData {
-  session: BackendSession;
+  session: SessionSnapshotSession;
   project: ProjectSummary | null;
+}
+
+export interface SessionSnapshotSession {
+  session_id: string;
+  project_id: string | null;
+  state_version: number;
+  fsm_state: FsmState;
+  export_status: ExportStatus;
+  dashboard_fields: Record<string, DashboardField>;
+  triggered_risks: RiskFlag[];
+  knowledge_hits: KnowledgeHit[];
+  suggestion: SuggestionSummary | null;
 }
 
 export interface BackendSession {

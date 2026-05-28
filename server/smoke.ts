@@ -193,9 +193,22 @@ try {
   assert.equal(sessionSnapshotData.project?.project_name, "医院老机房改造一期");
   assert.equal(sessionSnapshotData.project?.stage, "solution_ready");
 
+  const healthBeforeMissingRead = await requestJson("/api/health");
+  assert.equal(healthBeforeMissingRead.status, 200);
+  const healthBeforeMissingReadData = healthBeforeMissingRead.body as {
+    sessions: number;
+  };
+
   const missingSessionSnapshot = await requestJson("/api/session?session_id=sess_missing");
   assert.equal(missingSessionSnapshot.status, 404);
-  assert.equal((missingSessionSnapshot.body.error as { code: string }).code, "NOT_FOUND");
+  assert.equal((missingSessionSnapshot.body.error as { code: string }).code, "SESSION_NOT_FOUND");
+
+  const healthAfterMissingRead = await requestJson("/api/health");
+  assert.equal(healthAfterMissingRead.status, 200);
+  const healthAfterMissingReadData = healthAfterMissingRead.body as {
+    sessions: number;
+  };
+  assert.equal(healthAfterMissingReadData.sessions, healthBeforeMissingReadData.sessions);
 
   const reboundChat = await requestJson("/api/session/chat", {
     method: "POST",

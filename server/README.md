@@ -66,7 +66,7 @@ The frontend calls through `src/sessionApi.ts`. Default mode still uses `src/moc
 
 In backend mode, `POST /api/session/chat` can bind a session to a project by sending `project_id`; later chat requests must keep using the same project id, and the export payload will prefer the bound project record when it exists.
 
-`GET /api/session?session_id=<id>` returns a read-only snapshot under `data` with both the session record and the bound project summary, if any. Unknown session ids return `404`.
+`GET /api/session?session_id=<id>` returns a read-only snapshot under `data` with both the session record and the bound project summary, if any. Unknown session ids return `404 SESSION_NOT_FOUND`.
 
 To run the frontend against this backend skeleton:
 
