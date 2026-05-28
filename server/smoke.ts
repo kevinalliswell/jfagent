@@ -76,6 +76,32 @@ try {
   assert.equal(fetchedProjectData.project.project_name, "医院老机房改造一期");
   assert.equal(fetchedProjectData.project.primary_session_id, null);
 
+  const missingProject = await requestJson("/api/projects/proj_missing");
+  assert.equal(missingProject.status, 404);
+  assert.equal((missingProject.body.error as { code: string }).code, "PROJECT_NOT_FOUND");
+
+  const blankNameProject = await requestJson("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  assert.equal(blankNameProject.status, 200);
+  const blankNameProjectData = blankNameProject.body.data as {
+    project: { project_name: string };
+  };
+  assert.ok(blankNameProjectData.project.project_name.startsWith("未命名项目 "));
+
+  const missingNameProject = await requestJson("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({
+      name: ""
+    })
+  });
+  assert.equal(missingNameProject.status, 200);
+  const missingNameProjectData = missingNameProject.body.data as {
+    project: { project_name: string };
+  };
+  assert.ok(missingNameProjectData.project.project_name.startsWith("未命名项目 "));
+
   const invalidKnowledgeUpload = await requestJson("/api/admin/knowledge/upload", {
     method: "POST",
     body: JSON.stringify({

@@ -87,6 +87,9 @@ Location: `server/`
 Current endpoints:
 
 - `GET /api/health`
+- `GET /api/projects`
+- `POST /api/projects`
+- `GET /api/projects/{project_id}`
 - `GET /api/session?session_id=<id>`
 - `POST /api/session/chat`
 - `POST /api/session/override`
@@ -97,6 +100,7 @@ Current endpoints:
 
 Current behavior:
 
+- In-memory project store alongside in-memory session store.
 - In-memory session store.
 - Mock field extraction and rule hints.
 - Backend-side local hybrid knowledge retrieval for chat responses.
@@ -108,6 +112,12 @@ Current behavior:
 - 402 payment-willingness gate for final export.
 - Free preview export response.
 - Container entrypoint rebuilds the runtime knowledge index on API startup so persisted uploads are available after image upgrades.
+
+The backend project domain provides lightweight CRUD-style project records that sit beside session state, giving the API a stable boundary for future tenant/project storage without forcing session documents to carry all project metadata. The current project service is in-memory and smoke-tested via:
+
+- `GET /api/projects`
+- `POST /api/projects`
+- `GET /api/projects/{project_id}`
 
 The skeleton is verified by `npm run api:smoke`. The frontend can be run against it with `npm run dev:backend`.
 
@@ -149,6 +159,7 @@ Responsibilities:
 Current important files:
 
 - `server/sessionService.ts`: in-memory session behavior and API response assembly.
+- `server/projectService.ts`: in-memory project domain store and project summary cloning.
 - `server/localVectorSearch.ts`: backend-side local hybrid keyword/vector retrieval for `/api/session/chat`.
 - `server/generatedKnowledge.json`: generated runtime backend knowledge chunks.
 - `server/exportPayload.ts`: frozen export payload schema, chapter plan builder, placeholder BOM, and schema-level validation.
@@ -198,6 +209,7 @@ The central runtime object is `SessionSnapshot`.
 It contains:
 
 - `fsm_state`
+- `project_id`
 - `export_status`
 - `messages`
 - `quick_replies`
@@ -206,6 +218,8 @@ It contains:
 - `knowledge_hits`
 - `suggestion`
 - `export_asset`
+
+Project state now exists alongside session state as a separate backend domain object, which keeps project identity and lifecycle fields out of the chat-only session record while the MVP is still local-first.
 
 Dashboard fields carry:
 

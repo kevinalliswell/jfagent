@@ -8,11 +8,11 @@ import {
   postSessionChat,
   postSessionOverride
 } from "./sessionService.js";
-import type { ErrorEnvelope } from "./types.js";
+import type { CreateProjectRequest, ErrorEnvelope } from "./types.js";
 import { createReadStream } from "node:fs";
 import { getRenderedAsset } from "./exportDocument.js";
 import { getKnowledgeAdminStatus, postKnowledgeUpload } from "./knowledgeAdmin.js";
-import { cloneProject, createProject, getProject, listProjects } from "./projectService.js";
+import { createProject, getProject, listProjects } from "./projectService.js";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -153,7 +153,7 @@ async function route(request: IncomingMessage, response: ServerResponse) {
     }
 
     if (request.method === "POST" && url.pathname === "/api/projects") {
-      const body = (await readJsonBody(request)) as { name?: unknown };
+      const body = (await readJsonBody(request)) as CreateProjectRequest;
       const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : undefined;
       sendJson(response, 200, {
         ok: true,
@@ -178,7 +178,7 @@ async function route(request: IncomingMessage, response: ServerResponse) {
       sendJson(response, 200, {
         ok: true,
         server_time: now(),
-        data: { project: cloneProject(project) }
+        data: { project }
       });
       return;
     }

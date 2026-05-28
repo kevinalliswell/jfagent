@@ -47,7 +47,8 @@ export function listProjects() {
 }
 
 export function getProject(projectId: string) {
-  return projects.get(projectId) ?? null;
+  const project = projects.get(projectId);
+  return project ? cloneProject(project) : null;
 }
 
 export function cloneProject(project: BackendProject) {
