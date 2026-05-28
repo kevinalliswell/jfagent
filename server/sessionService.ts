@@ -16,6 +16,12 @@ import type {
 import { buildExportPayload } from "./exportPayload.js";
 import { renderExportDocx } from "./exportDocument.js";
 import { searchKnowledge } from "./localVectorSearch.js";
+import {
+  buildProjectContext,
+  getProject,
+  linkSessionToProject,
+  syncProjectFromSession
+} from "./projectService.js";
 
 const sessions = new Map<string, BackendSession>();
 
@@ -130,11 +136,18 @@ function displayForField(code: string, value: string | number | null) {
   return String(value);
 }
 
-function loadOrCreateSession(sessionId: string) {
+function loadOrCreateSession(sessionId: string, projectId: string | null = null) {
   const existing = sessions.get(sessionId);
-  if (existing) return existing;
+  if (existing) {
+    if (projectId && existing.project_id !== projectId) {
+      existing.project_id = projectId;
+      linkSessionToProject(projectId, existing.session_id);
+    }
+    return existing;
+  }
   const session: BackendSession = {
     session_id: sessionId,
+    project_id: projectId,
     state_version: 1,
     fsm_state: "S0_IDLE",
     export_status: "draft",
@@ -148,6 +161,7 @@ function loadOrCreateSession(sessionId: string) {
     updated_at: now()
   };
   sessions.set(sessionId, session);
+  if (projectId) linkSessionToProject(projectId, sessionId);
   return session;
 }
 
@@ -251,7 +265,7 @@ export function postSessionChat(request: ChatRequest) {
     throw new ApiValidationError("message_type must be text, voice, or file.");
   }
 
-  const session = loadOrCreateSession(request.session_id);
+  const session = loadOrCreateSession(request.session_id, request.project_id ?? null);
   const text = request.content.trim();
   const patches: FieldPatch[] = [];
   const knowledgeHits = searchKnowledge(text, 3);
@@ -297,6 +311,9 @@ export function postSessionChat(request: ChatRequest) {
   session.knowledge_hits = knowledgeHits;
   session.state_version += 1;
   session.updated_at = now();
+  if (session.project_id) {
+    syncProjectFromSession(session.project_id, session);
+  }
 
   const hasScale = Boolean(session.dashboard_fields.rack_count?.value);
   const aiResponse = hasScale
@@ -312,6 +329,7 @@ export function postSessionChat(request: ChatRequest) {
     field_patches: patches,
     triggered_risks: session.triggered_risks,
     knowledge_hits: session.knowledge_hits,
+    project: buildProjectContext(session.project_id),
     state: {
       fsm_state: session.fsm_state,
       export_status: session.export_status,
@@ -348,6 +366,9 @@ export function postSessionOverride(request: OverrideRequest) {
   evaluateRisks(session);
   session.state_version += 1;
   session.updated_at = now();
+  if (session.project_id) {
+    syncProjectFromSession(session.project_id, session);
+  }
 
   const data: OverrideResponseData = {
     sync_status: "synced",
@@ -422,7 +443,8 @@ export function getSessionExport(params: {
   session.export_payload_stale = false;
   session.state_version += 1;
   session.updated_at = now();
-  const exportPayload = buildExportPayload(session, {
+  const project = session.project_id ? getProject(session.project_id) : null;
+  const exportPayload = buildExportPayload(session, project, {
     export_type: isPreview ? "preview_pdf" : "docx_requirement_sheet"
   });
   const renderedDocument = isPreview ? null : renderExportDocx(exportPayload);

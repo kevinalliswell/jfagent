@@ -69,12 +69,19 @@ export interface KnowledgeHit {
 
 export interface ChatRequest {
   session_id: string;
+  project_id?: string;
   message_type: MessageType;
   content: string;
   client_state_version?: number;
   client_message_id?: string;
   locale?: string;
   timezone?: string;
+}
+
+export interface ProjectContext {
+  project_id: string;
+  project_name: string;
+  stage: ProjectStage;
 }
 
 export interface OverrideRequest {
@@ -93,6 +100,7 @@ export interface ChatResponseData {
   field_patches: FieldPatch[];
   triggered_risks: RiskFlag[];
   knowledge_hits: KnowledgeHit[];
+  project: ProjectContext | null;
   state: {
     fsm_state: FsmState;
     export_status: ExportStatus;
@@ -169,6 +177,7 @@ export interface ErrorEnvelope {
 
 export interface BackendSession {
   session_id: string;
+  project_id: string | null;
   state_version: number;
   fsm_state: FsmState;
   export_status: ExportStatus;

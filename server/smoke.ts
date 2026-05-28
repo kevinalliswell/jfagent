@@ -142,6 +142,7 @@ try {
     method: "POST",
     body: JSON.stringify({
       session_id: "sess_smoke",
+      project_id: projectId,
       message_type: "text",
       content: "某医院老机房改造，50平，3楼，10个机柜，UPS后备2小时，国产优先"
     })
@@ -149,6 +150,7 @@ try {
   assert.equal(chat.status, 200);
   assert.equal(chat.body.ok, true);
   const chatData = chat.body.data as {
+    project?: { project_id: string; project_name: string; stage: string };
     state: { export_status: string };
     knowledge_hits: Array<{
       retrieval_method?: string;
@@ -157,6 +159,9 @@ try {
       keyword_score?: number;
     }>;
   };
+  assert.equal(chatData.project?.project_id, projectId);
+  assert.equal(chatData.project?.project_name, "医院老机房改造一期");
+  assert.equal(chatData.project?.stage, "solution_ready");
   assert.equal(chatData.state.export_status, "ready");
   assert.ok(chatData.knowledge_hits.length > 0);
   assert.equal(chatData.knowledge_hits[0].retrieval_method, "hybrid");
@@ -191,13 +196,27 @@ try {
     };
   };
   assert.equal(previewData.export_payload.version, "v1");
+  assert.equal(previewData.export_payload.project_name, "医院老机房改造一期");
   assert.equal(previewData.export_payload.commercial.pricing_mode, "manual_placeholder");
-  assert.ok(previewData.export_payload.project_name.includes("机房建设项目"));
   assert.ok(
     previewData.export_payload.chapter_plan.some(
       (chapter) => chapter.id === "CHAPTER_7_COMMERCIAL_PLACEHOLDER_APPENDIX"
     )
   );
+
+  const updatedProject = await requestJson(`/api/projects/${projectId}`);
+  assert.equal(updatedProject.status, 200);
+  const updatedProjectData = updatedProject.body.data as {
+    project: {
+      primary_session_id: string | null;
+      stage: string;
+      dashboard_snapshot: Record<string, { value: string | number | null }>;
+    };
+  };
+  assert.equal(updatedProjectData.project.primary_session_id, "sess_smoke");
+  assert.equal(updatedProjectData.project.stage, "solution_ready");
+  assert.equal(updatedProjectData.project.dashboard_snapshot.room_area_m2.value, 50);
+  assert.equal(updatedProjectData.project.dashboard_snapshot.rack_count.value, 12);
 
   const formal = await requestJson("/api/session/export?session_id=sess_smoke&approved=true");
   assert.equal(formal.status, 200);

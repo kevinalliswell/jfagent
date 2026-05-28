@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { BackendProject, DashboardField, ProjectSummary } from "./types.js";
+import type {
+  BackendProject,
+  BackendSession,
+  DashboardField,
+  ProjectContext,
+  ProjectStage,
+  ProjectSummary
+} from "./types.js";
 
 const projects = new Map<string, BackendProject>();
 
@@ -23,6 +30,12 @@ function toSummary(project: BackendProject): ProjectSummary {
     primary_session_id: project.primary_session_id,
     updated_at: project.updated_at
   };
+}
+
+function stageFromSession(session: BackendSession): ProjectStage {
+  if (session.fsm_state === "S3_READY_MONETIZATION") return "solution_ready";
+  if (session.fsm_state === "S2_PROACTIVE_INQUIRIES") return "clarifying";
+  return "intake";
 }
 
 export function createProject(name?: string) {
@@ -49,6 +62,35 @@ export function listProjects() {
 export function getProject(projectId: string) {
   const project = projects.get(projectId);
   return project ? cloneProject(project) : null;
+}
+
+export function buildProjectContext(projectId: string | null): ProjectContext | null {
+  if (!projectId) return null;
+  const project = projects.get(projectId);
+  if (!project) return null;
+  return {
+    project_id: project.project_id,
+    project_name: project.project_name,
+    stage: project.stage
+  };
+}
+
+export function linkSessionToProject(projectId: string, sessionId: string) {
+  const project = projects.get(projectId);
+  if (!project) return null;
+  project.primary_session_id = sessionId;
+  project.updated_at = now();
+  return project;
+}
+
+export function syncProjectFromSession(projectId: string, session: BackendSession) {
+  const project = projects.get(projectId);
+  if (!project) return null;
+  project.primary_session_id = session.session_id;
+  project.stage = stageFromSession(session);
+  project.dashboard_snapshot = cloneFields(session.dashboard_fields);
+  project.updated_at = now();
+  return project;
 }
 
 export function cloneProject(project: BackendProject) {

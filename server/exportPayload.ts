@@ -1,4 +1,10 @@
-import type { BackendSession, DashboardField, RiskFlag, SuggestionSummary } from "./types.js";
+import type {
+  BackendProject,
+  BackendSession,
+  DashboardField,
+  RiskFlag,
+  SuggestionSummary
+} from "./types.js";
 
 export const EXPORT_PAYLOAD_VERSION = "v1";
 export const EXPORT_TEMPLATE_VERSION = "2026.05";
@@ -811,11 +817,13 @@ export function validateExportPayload(payload: ExportPayloadV1): ExportPayloadVa
 
 export function buildExportPayload(
   session: BackendSession,
+  project: BackendProject | null,
   options: { export_type?: ExportDocumentType; generated_at?: string } = {}
 ): ExportPayloadV1 {
   const generatedAt = options.generated_at ?? now();
   const customerName = readString(session, "customer_name") ?? "客户名称待确认";
   const projectName =
+    project?.project_name ??
     readString(session, "project_name") ??
     `${customerName === "客户名称待确认" ? "客户" : customerName}数据中心机房建设项目`;
   const customerIndustry = canonicalIndustry(readString(session, "customer_industry"));
