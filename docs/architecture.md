@@ -101,6 +101,7 @@ Current endpoints:
 Current behavior:
 
 - In-memory project store alongside in-memory session store.
+- In backend mode, chat and export flows can bind a session to a project via `project_id`.
 - In-memory session store.
 - Mock field extraction and rule hints.
 - Backend-side local hybrid knowledge retrieval for chat responses.
@@ -218,7 +219,7 @@ It contains:
 - `suggestion`
 - `export_asset`
 
-Project state now exists alongside session state as a separate backend domain object. The shipped implementation keeps sessions and projects decoupled: `/api/projects` can create, list, and fetch project records, but `SessionSnapshot` is still chat/session-centric and is not yet project-bound. Project-session linkage is a planned follow-on task, not part of Task 1.
+Project state now exists alongside session state as a separate backend domain object. The shipped backend chat and export flows can bind a session to a project, and project records are synced from session state after chat and dashboard override updates. `/api/projects` can create, list, and fetch project records, and the project snapshot is the backend source of truth for current stage plus dashboard snapshot.
 
 Dashboard fields carry:
 

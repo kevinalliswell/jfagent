@@ -387,6 +387,9 @@ export function postSessionOverride(request: OverrideRequest) {
   session.suggestion = buildSuggestion(rackCount, true);
   session.export_payload_stale = true;
   evaluateRisks(session);
+  const state = inferState(session);
+  session.fsm_state = state.fsm_state;
+  session.export_status = state.export_status;
   session.state_version += 1;
   session.updated_at = now();
   if (session.project_id) {

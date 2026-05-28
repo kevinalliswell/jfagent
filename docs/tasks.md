@@ -28,6 +28,7 @@ Seed Trial Release is the current focus: ship a controlled Docker Compose server
 | T-016 | P0 | Done | Containerize seed deployment with GHCR, Docker Compose, and Caddy | Adds API/Web Dockerfiles, Compose, Caddy Basic Auth/HTTPS routing, GHCR publish workflow, and volume-backed uploads/exports. |
 | T-017 | P0 | Done | Prepare VPS Codex deployment handoff | Adds `docs/vps-codex-deployment-handoff.md` with a copy-paste Codex CLI prompt for image-only VPS deployment. |
 | T-018 | P0 | Done | Add project domain contracts and endpoints | Adds `/api/projects` list/create/fetch routes plus in-memory project service and smoke coverage. |
+| T-019 | P0 | Done | Bind sessions and export payloads to projects | Backend chat/export can bind a session to a project, sync project snapshots, and use project name in export payloads. |
 
 ## Immediate Next Steps
 

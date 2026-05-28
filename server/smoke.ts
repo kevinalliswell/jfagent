@@ -204,6 +204,72 @@ try {
   assert.equal(override.status, 200);
   assert.equal((override.body.data as { normalized_value: number }).normalized_value, 12);
 
+  const stagedProject = await requestJson("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "阶段推进项目"
+    })
+  });
+  assert.equal(stagedProject.status, 200);
+  const stagedProjectData = stagedProject.body.data as {
+    project: { project_id: string; project_name: string; stage: string };
+  };
+  const stagedProjectId = stagedProjectData.project.project_id;
+
+  const stagedChat = await requestJson("/api/session/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: "sess_stage_progress",
+      project_id: stagedProjectId,
+      message_type: "text",
+      content: "某医院老机房改造，面积50平方，国产优先"
+    })
+  });
+  assert.equal(stagedChat.status, 200);
+  const stagedChatData = stagedChat.body.data as {
+    state: { export_status: string };
+  };
+  assert.equal(stagedChatData.state.export_status, "draft");
+
+  const stagedRackOverride = await requestJson("/api/session/override", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: "sess_stage_progress",
+      field_code: "rack_count",
+      value: "10"
+    })
+  });
+  assert.equal(stagedRackOverride.status, 200);
+  assert.equal((stagedRackOverride.body.data as { normalized_value: number }).normalized_value, 10);
+
+  const stagedBackupOverride = await requestJson("/api/session/override", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: "sess_stage_progress",
+      field_code: "ups_backup_time_minutes",
+      value: "120"
+    })
+  });
+  assert.equal(stagedBackupOverride.status, 200);
+  assert.equal((stagedBackupOverride.body.data as { normalized_value: number }).normalized_value, 120);
+
+  const promotedProject = await requestJson(`/api/projects/${stagedProjectId}`);
+  assert.equal(promotedProject.status, 200);
+  const promotedProjectData = promotedProject.body.data as {
+    project: { stage: string; dashboard_snapshot: Record<string, { value: string | number | null }> };
+  };
+  assert.equal(promotedProjectData.project.stage, "solution_ready");
+  assert.equal(promotedProjectData.project.dashboard_snapshot.rack_count.value, 10);
+
+  const promotedSession = await requestJson("/api/session?session_id=sess_stage_progress");
+  assert.equal(promotedSession.status, 200);
+  const promotedSessionData = promotedSession.body.session as {
+    export_status: string;
+    fsm_state: string;
+  };
+  assert.equal(promotedSessionData.export_status, "ready");
+  assert.equal(promotedSessionData.fsm_state, "S3_READY_MONETIZATION");
+
   const paymentGate = await requestJson("/api/session/export?session_id=sess_smoke");
   assert.equal(paymentGate.status, 402);
   assert.equal((paymentGate.body.error as { code: string }).code, "PAYMENT_REQUIRED");
