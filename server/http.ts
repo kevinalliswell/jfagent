@@ -12,6 +12,7 @@ import type { ErrorEnvelope } from "./types.js";
 import { createReadStream } from "node:fs";
 import { getRenderedAsset } from "./exportDocument.js";
 import { getKnowledgeAdminStatus, postKnowledgeUpload } from "./knowledgeAdmin.js";
+import { cloneProject, createProject, getProject, listProjects } from "./projectService.js";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -136,6 +137,48 @@ async function route(request: IncomingMessage, response: ServerResponse) {
         ok: true,
         server_time: now(),
         data: postKnowledgeUpload(body)
+      });
+      return;
+    }
+
+    const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+
+    if (request.method === "GET" && url.pathname === "/api/projects") {
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: { projects: listProjects() }
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/projects") {
+      const body = (await readJsonBody(request)) as { name?: unknown };
+      const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : undefined;
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: { project: createProject(name) }
+      });
+      return;
+    }
+
+    if (request.method === "GET" && projectMatch) {
+      const project = getProject(projectMatch[1]);
+      if (!project) {
+        sendError(
+          response,
+          requestId,
+          404,
+          "PROJECT_NOT_FOUND",
+          "The requested project does not exist."
+        );
+        return;
+      }
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: { project: cloneProject(project) }
       });
       return;
     }

@@ -1,6 +1,7 @@
 import type { ExportPayloadV1 } from "./exportPayload.js";
 
 export type MessageType = "text" | "voice" | "file";
+export type ProjectStage = "intake" | "clarifying" | "solution_ready";
 
 export type FieldSource =
   | "user_message"
@@ -179,4 +180,21 @@ export interface BackendSession {
   export_payload_stale: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectSummary {
+  project_id: string;
+  project_name: string;
+  stage: ProjectStage;
+  primary_session_id: string | null;
+  updated_at: string;
+}
+
+export interface BackendProject extends ProjectSummary {
+  created_at: string;
+  dashboard_snapshot: Record<string, DashboardField>;
+}
+
+export interface CreateProjectRequest {
+  name?: string;
 }

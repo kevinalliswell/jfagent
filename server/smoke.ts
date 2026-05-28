@@ -45,6 +45,37 @@ try {
   assert.ok(knowledgeStatusData.index.chunk_count > 0);
   assert.ok(knowledgeStatusData.index.index_file.endsWith("server/generatedKnowledge.json"));
 
+  const createdProject = await requestJson("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "医院老机房改造一期"
+    })
+  });
+  assert.equal(createdProject.status, 200);
+  assert.equal(createdProject.body.ok, true);
+  const createdProjectData = createdProject.body.data as {
+    project: { project_id: string; project_name: string; stage: string };
+  };
+  assert.equal(createdProjectData.project.project_name, "医院老机房改造一期");
+  assert.equal(createdProjectData.project.stage, "intake");
+  const projectId = createdProjectData.project.project_id;
+
+  const listedProjects = await requestJson("/api/projects");
+  assert.equal(listedProjects.status, 200);
+  const listedProjectsData = listedProjects.body.data as {
+    projects: Array<{ project_id: string; project_name: string }>;
+  };
+  assert.ok(listedProjectsData.projects.some((project) => project.project_id === projectId));
+
+  const fetchedProject = await requestJson(`/api/projects/${projectId}`);
+  assert.equal(fetchedProject.status, 200);
+  const fetchedProjectData = fetchedProject.body.data as {
+    project: { project_id: string; project_name: string; primary_session_id: string | null };
+  };
+  assert.equal(fetchedProjectData.project.project_id, projectId);
+  assert.equal(fetchedProjectData.project.project_name, "医院老机房改造一期");
+  assert.equal(fetchedProjectData.project.primary_session_id, null);
+
   const invalidKnowledgeUpload = await requestJson("/api/admin/knowledge/upload", {
     method: "POST",
     body: JSON.stringify({
