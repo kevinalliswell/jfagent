@@ -209,7 +209,6 @@ The central runtime object is `SessionSnapshot`.
 It contains:
 
 - `fsm_state`
-- `project_id`
 - `export_status`
 - `messages`
 - `quick_replies`
@@ -219,7 +218,7 @@ It contains:
 - `suggestion`
 - `export_asset`
 
-Project state now exists alongside session state as a separate backend domain object, which keeps project identity and lifecycle fields out of the chat-only session record while the MVP is still local-first.
+Project state now exists alongside session state as a separate backend domain object. The shipped implementation keeps sessions and projects decoupled: `/api/projects` can create, list, and fetch project records, but `SessionSnapshot` is still chat/session-centric and is not yet project-bound. Project-session linkage is a planned follow-on task, not part of Task 1.
 
 Dashboard fields carry:
 

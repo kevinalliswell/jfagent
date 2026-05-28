@@ -76,6 +76,14 @@ try {
   assert.equal(fetchedProjectData.project.project_name, "医院老机房改造一期");
   assert.equal(fetchedProjectData.project.primary_session_id, null);
 
+  fetchedProjectData.project.project_name = "mutated locally";
+  const refetchedProject = await requestJson(`/api/projects/${projectId}`);
+  assert.equal(refetchedProject.status, 200);
+  const refetchedProjectData = refetchedProject.body.data as {
+    project: { project_name: string };
+  };
+  assert.equal(refetchedProjectData.project.project_name, "医院老机房改造一期");
+
   const missingProject = await requestJson("/api/projects/proj_missing");
   assert.equal(missingProject.status, 404);
   assert.equal((missingProject.body.error as { code: string }).code, "PROJECT_NOT_FOUND");
