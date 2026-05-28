@@ -111,7 +111,10 @@ function cloneKnowledgeHits(hits: BackendSession["knowledge_hits"]) {
 }
 
 function cloneTriggeredRisks(risks: BackendSession["triggered_risks"]) {
-  return risks.map((risk) => ({ ...risk }));
+  return risks.map((risk) => ({
+    ...risk,
+    trigger_fields: [...risk.trigger_fields]
+  }));
 }
 
 function cloneSuggestion(suggestion: BackendSession["suggestion"]) {

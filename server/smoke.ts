@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createApiServer } from "./http.js";
 import { createProject, getProject } from "./projectService.js";
+import { getSessionSnapshot } from "./sessionService.js";
 
 const server = createApiServer();
 
@@ -192,6 +193,10 @@ try {
   assert.equal(sessionSnapshotData.project?.project_id, projectId);
   assert.equal(sessionSnapshotData.project?.project_name, "医院老机房改造一期");
   assert.equal(sessionSnapshotData.project?.stage, "solution_ready");
+  assert.equal((sessionSnapshotData.session as { payment_willingness_99_rmb?: unknown }).payment_willingness_99_rmb, undefined);
+  assert.equal((sessionSnapshotData.session as { export_payload_stale?: unknown }).export_payload_stale, undefined);
+  assert.equal((sessionSnapshotData.session as { created_at?: unknown }).created_at, undefined);
+  assert.equal((sessionSnapshotData.session as { updated_at?: unknown }).updated_at, undefined);
 
   const healthBeforeMissingRead = await requestJson("/api/health");
   assert.equal(healthBeforeMissingRead.status, 200);
@@ -209,6 +214,13 @@ try {
     sessions: number;
   };
   assert.equal(healthAfterMissingReadData.sessions, healthBeforeMissingReadData.sessions);
+
+  const snapshotBeforeMutation = getSessionSnapshot("sess_smoke");
+  assert.ok(snapshotBeforeMutation.session.triggered_risks.length > 0);
+  snapshotBeforeMutation.session.triggered_risks[0].trigger_fields.push("mutated_field");
+  const snapshotAfterMutation = getSessionSnapshot("sess_smoke");
+  assert.ok(snapshotAfterMutation.session.triggered_risks.length > 0);
+  assert.ok(!snapshotAfterMutation.session.triggered_risks[0].trigger_fields.includes("mutated_field"));
 
   const reboundChat = await requestJson("/api/session/chat", {
     method: "POST",
