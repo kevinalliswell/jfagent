@@ -37,6 +37,9 @@ PORT=3100 npm run api:start
 ## Endpoints
 
 - `GET /api/health`
+- `GET /api/projects`
+- `POST /api/projects`
+- `GET /api/projects/{project_id}`
 - `GET /api/session?session_id=<id>`
 - `POST /api/session/chat`
 - `POST /api/session/override`
@@ -49,6 +52,7 @@ The implementation is intentionally lightweight:
 - Node.js built-in HTTP server.
 - TypeScript types local to `server/`.
 - In-memory session store.
+- In-memory project store and project/session binding.
 - Mock extraction/risk/export behavior that follows `api_spec.md` envelopes.
 - `ExportPayloadV1` builder for Word rendering input.
 - First-pass DOCX renderer using `scripts/render-export-docx.py`.
@@ -59,6 +63,8 @@ The implementation is intentionally lightweight:
 ## Current Boundary
 
 The frontend calls through `src/sessionApi.ts`. Default mode still uses `src/mockApi.ts` for stable local demos, and backend mode sends selected session calls to this API skeleton.
+
+In backend mode, `POST /api/session/chat` can bind a session to a project by sending `project_id`; later chat requests must keep using the same project id, and the export payload will prefer the bound project record when it exists.
 
 To run the frontend against this backend skeleton:
 

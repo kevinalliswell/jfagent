@@ -115,6 +115,9 @@ All successful responses should use this envelope unless streaming is explicitly
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `GET` | `/api/projects` | List backend project records. |
+| `POST` | `/api/projects` | Create a backend project record. |
+| `GET` | `/api/projects/{project_id}` | Fetch a backend project record. |
 | `POST` | `/api/session/chat` | Send text, voice transcription, or file payload into the LLM/rule pipeline. |
 | `POST` | `/api/session/override` | Commit a dashboard manual correction after double-click editing. |
 | `GET` | `/api/session/export` | Run billing check and compile final `.docx` proposal asset. |
@@ -176,6 +179,7 @@ Required product payload:
 ```json
 {
   "session_id": "sess_123",
+  "project_id": "proj_123",
   "message_type": "text",
   "content": "raw string data"
 }
@@ -200,6 +204,7 @@ Production schema:
 | Field | Type | Required | Rules |
 | --- | --- | --- | --- |
 | `session_id` | string | Yes | Existing or newly allocated session id. |
+| `project_id` | string | No | Optional project id. If provided, it must exist and must match any existing session binding. |
 | `message_type` | enum | Yes | `text`, `voice`, or `file`. |
 | `content` | string | Yes | Raw text, voice transcript, or file extraction reference/payload. |
 | `client_state_version` | integer | No | Used for conflict detection. |
@@ -225,6 +230,11 @@ Required product response:
   "quick_replies": ["string"],
   "updated_fields": {
     "room_area": 50
+  },
+  "project": {
+    "project_id": "proj_123",
+    "project_name": "医院老机房改造一期",
+    "stage": "solution_ready"
   },
   "triggered_risks": [
     {

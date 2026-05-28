@@ -79,6 +79,20 @@ function now() {
   return new Date().toISOString();
 }
 
+function projectNotFoundError() {
+  const error = new ApiValidationError("The requested project does not exist.");
+  error.status = 404;
+  error.code = "PROJECT_NOT_FOUND";
+  return error;
+}
+
+function projectSessionBoundError() {
+  const error = new ApiValidationError("The session is already bound to a different project.");
+  error.status = 409;
+  error.code = "PROJECT_SESSION_BOUND";
+  return error;
+}
+
 function response<T>(session: BackendSession, data: T): SuccessEnvelope<T> {
   return {
     ok: true,
@@ -137,11 +151,20 @@ function displayForField(code: string, value: string | number | null) {
 }
 
 function loadOrCreateSession(sessionId: string, projectId: string | null = null) {
+  if (projectId && !getProject(projectId)) {
+    throw projectNotFoundError();
+  }
   const existing = sessions.get(sessionId);
   if (existing) {
-    if (projectId && existing.project_id !== projectId) {
+    if (existing.project_id && projectId && existing.project_id !== projectId) {
+      throw projectSessionBoundError();
+    }
+    if (!existing.project_id && projectId) {
       existing.project_id = projectId;
       linkSessionToProject(projectId, existing.session_id);
+    }
+    if (existing.project_id && projectId === null) {
+      return existing;
     }
     return existing;
   }

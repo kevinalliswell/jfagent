@@ -77,6 +77,18 @@ try {
   assert.equal(fetchedProjectData.project.project_name, "医院老机房改造一期");
   assert.equal(fetchedProjectData.project.primary_session_id, null);
 
+  const unknownProjectChat = await requestJson("/api/session/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: "sess_unknown_project",
+      project_id: "proj_missing",
+      message_type: "text",
+      content: "某医院老机房改造，50平，3楼，10个机柜，UPS后备2小时，国产优先"
+    })
+  });
+  assert.equal(unknownProjectChat.status, 404);
+  assert.equal((unknownProjectChat.body.error as { code: string }).code, "PROJECT_NOT_FOUND");
+
   const serviceProject = createProject("服务边界项目");
   const firstRead = getProject(serviceProject.project_id);
   assert.ok(firstRead);
@@ -168,6 +180,18 @@ try {
   assert.ok(chatData.knowledge_hits[0].source_file);
   assert.equal(typeof chatData.knowledge_hits[0].vector_score, "number");
   assert.equal(typeof chatData.knowledge_hits[0].keyword_score, "number");
+
+  const reboundChat = await requestJson("/api/session/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: "sess_smoke",
+      project_id: serviceProject.project_id,
+      message_type: "text",
+      content: "补充一次新的聊天内容"
+    })
+  });
+  assert.equal(reboundChat.status, 409);
+  assert.equal((reboundChat.body.error as { code: string }).code, "PROJECT_SESSION_BOUND");
 
   const override = await requestJson("/api/session/override", {
     method: "POST",
