@@ -117,6 +117,17 @@ try {
   };
   assert.ok(missingNameProjectData.project.project_name.startsWith("未命名项目 "));
 
+  const nullBodyProject = await requestJson("/api/projects", {
+    method: "POST",
+    body: JSON.stringify(null)
+  });
+  assert.equal(nullBodyProject.status, 200);
+  assert.equal(nullBodyProject.body.ok, true);
+  const nullBodyProjectData = nullBodyProject.body.data as {
+    project: { project_name: string };
+  };
+  assert.ok(nullBodyProjectData.project.project_name.startsWith("未命名项目 "));
+
   const invalidKnowledgeUpload = await requestJson("/api/admin/knowledge/upload", {
     method: "POST",
     body: JSON.stringify({
