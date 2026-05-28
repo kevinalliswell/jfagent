@@ -181,6 +181,22 @@ try {
   assert.equal(typeof chatData.knowledge_hits[0].vector_score, "number");
   assert.equal(typeof chatData.knowledge_hits[0].keyword_score, "number");
 
+  const sessionSnapshot = await requestJson("/api/session?session_id=sess_smoke");
+  assert.equal(sessionSnapshot.status, 200);
+  const sessionSnapshotData = sessionSnapshot.body.data as {
+    session: { session_id: string; project_id: string | null; state_version: number };
+    project: { project_id: string; project_name: string; stage: string } | null;
+  };
+  assert.equal(sessionSnapshotData.session.session_id, "sess_smoke");
+  assert.equal(sessionSnapshotData.session.project_id, projectId);
+  assert.equal(sessionSnapshotData.project?.project_id, projectId);
+  assert.equal(sessionSnapshotData.project?.project_name, "医院老机房改造一期");
+  assert.equal(sessionSnapshotData.project?.stage, "solution_ready");
+
+  const missingSessionSnapshot = await requestJson("/api/session?session_id=sess_missing");
+  assert.equal(missingSessionSnapshot.status, 404);
+  assert.equal((missingSessionSnapshot.body.error as { code: string }).code, "NOT_FOUND");
+
   const reboundChat = await requestJson("/api/session/chat", {
     method: "POST",
     body: JSON.stringify({
@@ -263,10 +279,12 @@ try {
 
   const promotedSession = await requestJson("/api/session?session_id=sess_stage_progress");
   assert.equal(promotedSession.status, 200);
-  const promotedSessionData = promotedSession.body.session as {
-    export_status: string;
-    fsm_state: string;
-  };
+  const promotedSessionData = (promotedSession.body.data as {
+    session: {
+      export_status: string;
+      fsm_state: string;
+    };
+  }).session;
   assert.equal(promotedSessionData.export_status, "ready");
   assert.equal(promotedSessionData.fsm_state, "S3_READY_MONETIZATION");
 

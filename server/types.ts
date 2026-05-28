@@ -175,6 +175,11 @@ export interface ErrorEnvelope {
   server_time: string;
 }
 
+export interface SessionSnapshotData {
+  session: BackendSession;
+  project: ProjectSummary | null;
+}
+
 export interface BackendSession {
   session_id: string;
   project_id: string | null;

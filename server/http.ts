@@ -192,7 +192,7 @@ async function route(request: IncomingMessage, response: ServerResponse) {
       if (!sessionId) throw new ApiValidationError("session_id is required.");
       sendJson(response, 200, {
         ok: true,
-        session: getSessionSnapshot(sessionId),
+        data: getSessionSnapshot(sessionId),
         server_time: now()
       });
       return;

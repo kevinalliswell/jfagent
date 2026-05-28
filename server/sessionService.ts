@@ -11,6 +11,7 @@ import type {
   OverrideResponseData,
   RiskFlag,
   SuggestionSummary,
+  SessionSnapshotData,
   SuccessEnvelope
 } from "./types.js";
 import { buildExportPayload } from "./exportPayload.js";
@@ -512,7 +513,26 @@ export function getSessionExport(params: {
 }
 
 export function getSessionSnapshot(sessionId: string) {
-  return loadOrCreateSession(sessionId);
+  const session = sessions.get(sessionId);
+  if (!session) {
+    const error = new ApiValidationError("session_id was not found.");
+    error.status = 404;
+    error.code = "NOT_FOUND";
+    throw error;
+  }
+  const project = session.project_id ? getProject(session.project_id) : null;
+  return {
+    session,
+    project: project
+      ? {
+          project_id: project.project_id,
+          project_name: project.project_name,
+          stage: project.stage,
+          primary_session_id: project.primary_session_id,
+          updated_at: project.updated_at
+        }
+      : null
+  } satisfies SessionSnapshotData;
 }
 
 export function getSessionCount() {

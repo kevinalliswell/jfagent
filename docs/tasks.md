@@ -29,6 +29,7 @@ Seed Trial Release is the current focus: ship a controlled Docker Compose server
 | T-017 | P0 | Done | Prepare VPS Codex deployment handoff | Adds `docs/vps-codex-deployment-handoff.md` with a copy-paste Codex CLI prompt for image-only VPS deployment. |
 | T-018 | P0 | Done | Add project domain contracts and endpoints | Adds `/api/projects` list/create/fetch routes plus in-memory project service and smoke coverage. |
 | T-019 | P0 | Done | Bind sessions and export payloads to projects | Backend chat/export can bind a session to a project, sync project snapshots, and use project name in export payloads. |
+| T-020 | P1 | Done | Expose project-bound session snapshots | `GET /api/session` now returns a read-only session snapshot with the bound project summary under `data`. |
 
 ## Immediate Next Steps
 

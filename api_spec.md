@@ -118,6 +118,7 @@ All successful responses should use this envelope unless streaming is explicitly
 | `GET` | `/api/projects` | List backend project records. |
 | `POST` | `/api/projects` | Create a backend project record. |
 | `GET` | `/api/projects/{project_id}` | Fetch a backend project record. |
+| `GET` | `/api/session?session_id=<id>` | Fetch a read-only session snapshot with the bound project summary, if any. |
 | `POST` | `/api/session/chat` | Send text, voice transcription, or file payload into the LLM/rule pipeline. |
 | `POST` | `/api/session/override` | Commit a dashboard manual correction after double-click editing. |
 | `GET` | `/api/session/export` | Run billing check and compile final `.docx` proposal asset. |
@@ -127,7 +128,44 @@ All successful responses should use this envelope unless streaming is explicitly
 
 ---
 
-## 1. POST /api/session/chat
+## 1. GET /api/session
+
+### Purpose
+
+Return a read-only snapshot of the current session state. This endpoint does not create state. If the session is bound to a project, the response includes the project summary under `data.project`.
+
+### Request
+
+Required query parameters:
+
+- `session_id`: existing session identifier.
+
+### Response Shape
+
+```json
+{
+  "ok": true,
+  "server_time": "2026-05-22T21:40:00+08:00",
+  "data": {
+    "session": {
+      "session_id": "sess_123",
+      "project_id": "proj_123",
+      "state_version": 12
+    },
+    "project": {
+      "project_id": "proj_123",
+      "project_name": "医院老机房改造一期",
+      "stage": "solution_ready"
+    }
+  }
+}
+```
+
+`project` is `null` when the session is unbound.
+
+---
+
+## 2. POST /api/session/chat
 
 ### Purpose
 
