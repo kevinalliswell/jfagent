@@ -13,6 +13,7 @@ knowledge/uploads/
 .env.*
 !.env.example
 !.env.caddy.example
+!.env.api.example
 
 src/generatedKnowledge.ts
 server/generatedKnowledge.ts

@@ -316,3 +316,23 @@ Consequences:
 - GitHub Actions becomes the image build and publish path.
 - Nginx/systemd deployment remains only a fallback for environments where Docker is unavailable.
 - This does not introduce production SaaS auth, tenant isolation, database persistence, or real billing.
+
+## D-018: First Real Agent Uses OpenAI-Compatible Chat Completions
+
+Status: accepted.
+
+Decision:
+
+Add the first real LLM path behind the backend session API using an OpenAI-compatible `/v1/chat/completions` client implemented with Node `fetch`. Configure it with `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, and `OPENAI_TIMEOUT_MS`. Support third-party New API style relay platforms such as `xingwan.store` through `OPENAI_BASE_URL=https://xingwan.store/v1`. Keep existing rule extraction, RAG retrieval, risk evaluation, and fixed mock response as fallbacks.
+
+Reason:
+
+The seed trial needs answers that feel closer to a real senior pre-sales expert, but the project should not depend on one model provider or destabilize dashboard state. OpenAI-compatible Chat Completions is the broadest shared interface across OpenAI and relay platforms, while the current deterministic rules protect the product workflow.
+
+Consequences:
+
+- Backend chat can produce LLM-generated `ai_response`, `quick_replies`, and field candidates when a key is configured.
+- LLM field candidates use `agent_inference` and cannot overwrite `dashboard_edit`, `user_message`, `upload`, or `button_chip` values.
+- If no key is configured, the platform rejects JSON mode, the call times out, or the model returns invalid JSON, the API still returns the current rule/mock behavior.
+- The first version avoids streaming, tools/function calling, Responses API, and strict JSON schema to maximize third-party relay compatibility.
+- Secrets stay in runtime `.env.api`, not in GHCR images.

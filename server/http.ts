@@ -200,7 +200,7 @@ async function route(request: IncomingMessage, response: ServerResponse) {
 
     if (request.method === "POST" && url.pathname === "/api/session/chat") {
       const body = await readJsonBody(request);
-      sendJson(response, 200, postSessionChat(body as never));
+      sendJson(response, 200, await postSessionChat(body as never));
       return;
     }
 

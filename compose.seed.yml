@@ -5,6 +5,9 @@ services:
       context: .
       dockerfile: docker/api.Dockerfile
     restart: unless-stopped
+    env_file:
+      - path: .env.api
+        required: false
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0

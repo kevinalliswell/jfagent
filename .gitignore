@@ -15,3 +15,4 @@ server/generatedKnowledge.json
 .env.*
 !.env.caddy.example
 .superpowers/
+!.env.api.example

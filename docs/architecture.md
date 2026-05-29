@@ -17,7 +17,7 @@ User
   -> React chat UI
   -> switchable session API in src/sessionApi.ts
   -> mock session API in src/mockApi.ts OR backend API in server/
-  -> field extraction / risk mock / knowledge retrieval
+  -> field extraction / risk mock / knowledge retrieval / optional OpenAI-compatible LLM
   -> SessionSnapshot state
   -> right dashboard + knowledge hits + export gate
 ```
@@ -106,6 +106,7 @@ Current behavior:
 - In-memory session store.
 - Mock field extraction and rule hints.
 - Backend-side local hybrid knowledge retrieval for chat responses.
+- Optional OpenAI-compatible chat completion for expert response and low-precedence field candidates.
 - Admin-only seed-trial knowledge upload, index rebuild, and backend retrieval hot reload.
 - Manual override precedence.
 - Export payload assembly for Word rendering.
@@ -163,6 +164,7 @@ Current important files:
 
 - `server/sessionService.ts`: in-memory session behavior and API response assembly.
 - `server/projectService.ts`: in-memory project domain store and project summary cloning.
+- `server/llmClient.ts`: OpenAI-compatible Chat Completions client with JSON-mode retry and safe fallback.
 - `server/localVectorSearch.ts`: backend-side local hybrid keyword/vector retrieval for `/api/session/chat`.
 - `server/generatedKnowledge.json`: generated runtime backend knowledge chunks.
 - `server/exportPayload.ts`: frozen export payload schema, chapter plan builder, placeholder BOM, and schema-level validation.
@@ -241,14 +243,15 @@ dashboard_edit > user_message > upload > button_chip > agent_inference > default
 ## Data Flow
 
 1. User sends a messy project description.
-2. Mock API extracts candidate fields and project signals.
-3. Backend API mode runs local hybrid retrieval from the runtime JSON index and returns `knowledge_hits`; mock mode still uses `src/localVectorSearch.ts`.
-4. Rule mock identifies risks and sizing suggestions.
-5. UI updates chat, dashboard fields, risks, and knowledge hits.
-6. User edits dashboard fields when needed.
-7. Export button triggers 99 RMB payment-willingness modal.
-8. Approved formal export builds `ExportPayloadV1`, renders a real `.docx`, stores it under `output/doc/`, and exposes a download URL.
-9. Free preview still returns a simulated preview asset until PDF preview rendering is implemented.
+2. Backend mode first applies deterministic field extraction and local hybrid retrieval; mock mode still uses the browser mock path.
+3. If `OPENAI_API_KEY` is configured, backend mode asks an OpenAI-compatible model for a Chinese pre-sales response, quick replies, and `agent_inference` field candidates.
+4. LLM candidates can only fill existing dashboard fields and cannot overwrite manual edits or values already extracted from user/upload/chip sources.
+5. Rule mock identifies risks and sizing suggestions after field updates.
+6. UI updates chat, dashboard fields, risks, and knowledge hits.
+7. User edits dashboard fields when needed.
+8. Export button triggers 99 RMB payment-willingness modal.
+9. Approved formal export builds `ExportPayloadV1`, renders a real `.docx`, stores it under `output/doc/`, and exposes a download URL.
+10. Free preview still returns a simulated preview asset until PDF preview rendering is implemented.
 
 ## Key Boundaries
 
@@ -258,6 +261,7 @@ In scope for the current MVP:
 - Local knowledge citation and retrieval.
 - Admin-only knowledge upload for controlled seed trials.
 - Docker Compose seed deployment with private GHCR images and Caddy Basic Auth.
+- Optional OpenAI-compatible LLM response generation in backend mode.
 - Structured project field capture.
 - Manual override behavior.
 - Export value and willingness validation.

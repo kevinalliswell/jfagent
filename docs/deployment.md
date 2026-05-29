@@ -63,6 +63,7 @@ Copy only these files to the server:
 ```text
 compose.seed.yml
 .env.caddy
+.env.api  # optional, only when enabling real AI
 ```
 
 Do not copy the source repo to the server.
@@ -87,6 +88,24 @@ ADMIN_BASIC_AUTH_HASH='PASTE_ADMIN_BCRYPT_HASH'
 ```
 
 The hash contains `$` characters. Wrap each hash in single quotes in `.env.caddy` so Docker Compose treats it as a literal value.
+
+## Optional Real AI Environment
+
+Create `/opt/jfagent-deploy/.env.api` only when enabling the real backend agent:
+
+```dotenv
+OPENAI_BASE_URL=https://xingwan.store/v1
+OPENAI_API_KEY=PASTE_XINGWAN_OR_OPENAI_COMPATIBLE_TOKEN
+OPENAI_MODEL=PASTE_AVAILABLE_MODEL_NAME
+OPENAI_TIMEOUT_MS=12000
+```
+
+Notes:
+
+- If the relay console gives a different base URL, use that exact value.
+- The app appends `/chat/completions`, so include `/v1` in the base URL when the provider expects OpenAI-style paths.
+- If `.env.api` is missing or `OPENAI_API_KEY` is empty, backend chat falls back to the deterministic rule/mock response.
+- The API container reads `.env.api`; the web/Caddy container does not need model credentials.
 
 ## GHCR Login
 
@@ -143,6 +162,13 @@ Admin upload flow:
 2. Use the seed account for the page if prompted.
 3. Upload through the admin panel and enter the admin Basic Auth account if the page asks for it.
 4. Start a new chat turn and confirm uploaded sources appear in knowledge hits.
+
+Real AI flow:
+
+1. Create `.env.api` with the provider base URL, token, and model.
+2. Restart the API container with `docker compose -f compose.seed.yml up -d`.
+3. Send a new chat message and confirm the answer no longer uses the fixed fallback wording.
+4. If provider errors occur, check `docker compose -f compose.seed.yml logs -f api`; the app should still answer through fallback.
 
 ## Runtime Behavior
 

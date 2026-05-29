@@ -18,6 +18,7 @@ Implemented:
 - Hybrid keyword/vector retrieval from generated knowledge chunks: browser-side in mock mode, backend-side in API mode.
 - Admin-only seed-trial knowledge upload through `?admin=1` in backend mode.
 - Docker Compose seed deployment with private GHCR images and Caddy HTTPS/Basic Auth.
+- Optional OpenAI-compatible backend agent for real pre-sales responses and low-precedence field candidates.
 - Local hashed vectors for knowledge chunks; no external embedding API.
 - BOQ/quotation summary panel in the dashboard.
 - Switchable frontend API client: default local mock mode, optional backend API mode.
@@ -30,7 +31,7 @@ Implemented:
 Not implemented yet:
 
 - Production backend service with persistence.
-- Real LLM integration.
+- Production-grade LLM orchestration, audit, and model governance.
 - Embedding/vector database retrieval.
 - Automated visual DOCX render QA without LibreOffice/`soffice`.
 - Real free-preview PDF generation.
@@ -104,6 +105,14 @@ npm run dev:backend
 ```
 
 Default frontend mode remains local mock API.
+
+Enable the optional real backend agent:
+
+```bash
+cp .env.api.example .env.api
+```
+
+Then set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`. For xingwan/New API style relay platforms, use `OPENAI_BASE_URL=https://xingwan.store/v1` unless the provider console shows a different base URL.
 
 Rebuild the local knowledge index:
 
