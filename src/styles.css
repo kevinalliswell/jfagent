@@ -113,6 +113,12 @@ button {
   box-shadow: 0 10px 24px rgba(31, 157, 99, 0.22);
 }
 
+.primary-action.compact {
+  min-height: 38px;
+  min-width: 88px;
+  box-shadow: none;
+}
+
 .kb-action {
   min-height: 40px;
   background: var(--blue);
@@ -137,6 +143,45 @@ button {
 }
 
 .sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-section {
+  gap: 10px;
+}
+
+.project-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.project-create input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fff;
+  color: var(--text);
+  outline: none;
+}
+
+.project-create input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(47, 114, 207, 0.13);
+}
+
+.project-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -227,11 +272,57 @@ button {
   text-overflow: ellipsis;
 }
 
+.project-item-body {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.project-item-body strong,
+.project-item-body small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-item-body strong {
+  font-size: 13px;
+}
+
+.project-item-body small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .project-item.active {
   background: var(--blue-soft);
   border-color: #bdd4f6;
   color: #184f9f;
   font-weight: 700;
+}
+
+.project-empty {
+  min-height: 56px;
+  border: 1px dashed #cfdad4;
+  border-radius: 8px;
+  background: #fcfdfc;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.sidebar-note {
+  margin: 0;
+  color: var(--green-dark);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .sidebar-foot {
@@ -272,6 +363,45 @@ button {
   background: rgba(255, 255, 255, 0.86);
 }
 
+.project-overview {
+  padding: 14px 22px 18px;
+  border-bottom: 1px solid #e8efeb;
+  background: #f7fbf9;
+  display: grid;
+  gap: 12px;
+}
+
+.project-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.project-overview-grid .metric {
+  background: #fff;
+}
+
+.project-overview-note,
+.project-overview-empty {
+  margin: 0;
+  color: #56645d;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.project-overview-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-overview-empty {
+  padding: 10px 12px;
+  border: 1px dashed #cfdad4;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .chat-titlebar {
   display: flex;
   justify-content: space-between;
@@ -306,6 +436,34 @@ button {
 
 .completion-ready {
   background: var(--green);
+}
+
+.stage-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.stage-intake {
+  background: #eef3f0;
+  color: #476055;
+}
+
+.stage-clarifying {
+  background: #fff5de;
+  color: #8d620d;
+}
+
+.stage-ready {
+  background: #e7f7ef;
+  color: #1b7e50;
 }
 
 .message-list {
@@ -811,6 +969,67 @@ button {
   font-size: 14px;
 }
 
+.project-context-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.project-context-note {
+  margin: 12px 0 0;
+  color: #54625c;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.project-context-secondary {
+  margin-top: 10px;
+}
+
+.project-snapshot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.project-snapshot-chip {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d8e3dd;
+  border-radius: 999px;
+  background: #fbfdfc;
+  padding: 6px 10px;
+}
+
+.project-snapshot-chip b,
+.project-snapshot-chip strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-snapshot-chip b {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.project-snapshot-chip strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.project-snapshot-chips.compact {
+  margin-top: 10px;
+}
+
 .suggestion-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1030,6 +1249,8 @@ button {
   }
 
   .field-grid,
+  .project-context-grid,
+  .project-overview-grid,
   .suggestion-grid,
   .commercial-metrics {
     grid-template-columns: 1fr;

@@ -22,12 +22,17 @@ import {
 } from "lucide-react";
 import {
   completionForState,
+  createProject,
   displayForField,
+  getProjectDetail,
+  getSessionSnapshot,
   getSessionExport,
   getKnowledgeStatus,
   initialSession,
+  listProjects,
   postSessionChat,
   postSessionOverride,
+  sessionApiMode,
   uploadKnowledgeFile,
   sourceLabel
 } from "./sessionApi";
@@ -38,12 +43,124 @@ import type {
   KnowledgeIndexStatus,
   KnowledgeHit,
   PaymentRequiredError,
+  ProjectContext,
+  ProjectDetail,
+  ProjectStage,
+  ProjectSummary,
   RiskFlag,
+  SessionSnapshotData,
   SessionSnapshot
 } from "./types";
 
 const demoPrompt = "某学校老机房改造，30平，UPS、电池、精密空调和动环，柜子还没定";
 const maxKnowledgeUploadBytes = 20 * 1024 * 1024;
+
+function cloneDashboardFields(fields: SessionSnapshot["dashboard_fields"]) {
+  return Object.fromEntries(Object.entries(fields).map(([code, field]) => [code, { ...field }]));
+}
+
+function cloneKnowledgeHits(hits: KnowledgeHit[]) {
+  return hits.map((hit) => ({ ...hit }));
+}
+
+function cloneTriggeredRisks(risks: RiskFlag[]) {
+  return risks.map((risk) => ({
+    ...risk,
+    trigger_fields: [...risk.trigger_fields]
+  }));
+}
+
+function cloneSuggestion(suggestion: SessionSnapshot["suggestion"]) {
+  return suggestion ? { ...suggestion } : null;
+}
+
+function cloneProjectContext(project: ProjectContext | null) {
+  return project ? { ...project } : null;
+}
+
+function projectStageLabel(stage: ProjectStage) {
+  if (stage === "solution_ready") return "方案就绪";
+  if (stage === "clarifying") return "待澄清";
+  return "摸底中";
+}
+
+function projectStageClass(stage: ProjectStage) {
+  if (stage === "solution_ready") return "stage-ready";
+  if (stage === "clarifying") return "stage-clarifying";
+  return "stage-intake";
+}
+
+function makeSessionId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `sess_${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return `sess_${Date.now().toString(16)}`;
+}
+
+function buildQuickRepliesForSession(project: ProjectContext | null, ready = false) {
+  if (!project) return [];
+  if (ready) return ["生成Word需求表", "补充项目预算", "计划放置 10 个标准机柜"];
+  return ["某医院老机房改造，50平，UPS后备2小时", "计划放置 10 个标准机柜", "预算 30 万以内"];
+}
+
+function createDraftSession(project: ProjectContext | null): SessionSnapshot {
+  const dashboardFields = cloneDashboardFields(initialSession.dashboard_fields);
+
+  return {
+    ...initialSession,
+    session_id: makeSessionId(),
+    state_version: 1,
+    fsm_state: "S0_IDLE",
+    export_status: "draft",
+    completion: completionForState("S0_IDLE", dashboardFields),
+    messages: [
+      makeMessage(
+        "ai",
+        project
+          ? `已切换到 ${project.project_name}。先把客户原话、现场条件或预算线索发给我，我会把本轮对话直接绑定到这个项目。`
+          : "先在左侧创建或选择一个项目，再把客户线索发给我。我会把后续聊天、看板和导出都挂到这个项目上。"
+      )
+    ],
+    quick_replies: buildQuickRepliesForSession(project),
+    dashboard_fields: dashboardFields,
+    triggered_risks: [],
+    suggestion: null,
+    knowledge_hits: sessionApiMode === "mock" ? cloneKnowledgeHits(initialSession.knowledge_hits) : [],
+    export_asset: null,
+    project: cloneProjectContext(project)
+  };
+}
+
+function hydrateSessionFromSnapshot(snapshot: SessionSnapshotData): SessionSnapshot {
+  const dashboardFields = cloneDashboardFields(snapshot.session.dashboard_fields);
+
+  return {
+    session_id: snapshot.session.session_id,
+    state_version: snapshot.session.state_version,
+    fsm_state: snapshot.session.fsm_state,
+    export_status: snapshot.session.export_status,
+    completion: completionForState(snapshot.session.fsm_state, dashboardFields),
+    messages: [
+      makeMessage(
+        "ai",
+        snapshot.project
+          ? `已载入 ${snapshot.project.project_name} 的项目快照。你可以继续补充需求，或直接检查右侧看板和导出状态。`
+          : "已载入项目快照。你可以继续补充需求，或直接检查右侧看板和导出状态。"
+      )
+    ],
+    quick_replies: buildQuickRepliesForSession(snapshot.project, snapshot.session.export_status === "ready"),
+    dashboard_fields: dashboardFields,
+    triggered_risks: cloneTriggeredRisks(snapshot.session.triggered_risks),
+    suggestion: cloneSuggestion(snapshot.session.suggestion),
+    knowledge_hits: cloneKnowledgeHits(snapshot.session.knowledge_hits),
+    export_asset: null,
+    project: cloneProjectContext(snapshot.project)
+  };
+}
+
+function isProjectSessionBound(session: SessionSnapshot) {
+  return Boolean(session.project && session.state_version > 1);
+}
 
 function makeMessage(sender: ChatMessage["sender"], text: string): ChatMessage {
   return {
@@ -144,6 +261,53 @@ function buildCommercialSummary(hits: KnowledgeHit[]) {
   };
 }
 
+function snapshotFieldList(fields: Record<string, DashboardField>) {
+  return Object.values(fields);
+}
+
+function countSnapshotFields(fields: Record<string, DashboardField>) {
+  const snapshotFields = snapshotFieldList(fields);
+  return {
+    total: snapshotFields.length,
+    captured: snapshotFields.filter((field) => field.value !== null && field.value !== "").length,
+    pending: snapshotFields.filter((field) => field.value === null || field.needs_confirmation).length,
+    manual: snapshotFields.filter((field) => field.source === "dashboard_edit").length
+  };
+}
+
+function snapshotHighlightFields(fields: Record<string, DashboardField>, limit = 6) {
+  const preferredOrder = [
+    "customer_name",
+    "project_type",
+    "room_area_m2",
+    "room_floor",
+    "rack_count",
+    "ups_backup_time_minutes",
+    "brand_preference",
+    "budget_range_high_rmb"
+  ];
+
+  return preferredOrder
+    .map((code) => fields[code])
+    .filter((field): field is DashboardField =>
+      Boolean(field && field.value !== null && field.displayValue !== "待确认")
+    )
+    .slice(0, limit);
+}
+
+function formatTimestampLabel(value: string | null | undefined) {
+  if (!value) return "待归档";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
 function fileToBase64(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -157,7 +321,9 @@ function fileToBase64(file: File) {
 }
 
 export default function App() {
-  const [session, setSession] = useState<SessionSnapshot>(initialSession);
+  const [session, setSession] = useState<SessionSnapshot>(() =>
+    sessionApiMode === "backend" ? createDraftSession(null) : initialSession
+  );
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -165,6 +331,14 @@ export default function App() {
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [paymentRequest, setPaymentRequest] = useState<PaymentRequiredError | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projectDraftName, setProjectDraftName] = useState("");
+  const [projectsNotice, setProjectsNotice] = useState<string | null>(null);
+  const [isProjectsLoading, setIsProjectsLoading] = useState(true);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [isSwitchingProject, setIsSwitchingProject] = useState(false);
+  const [activeProjectDetail, setActiveProjectDetail] = useState<ProjectDetail | null>(null);
+  const [isProjectDetailLoading, setIsProjectDetailLoading] = useState(false);
   const isAdminMode = useMemo(() => new URLSearchParams(window.location.search).get("admin") === "1", []);
   const [knowledgeStatus, setKnowledgeStatus] = useState<KnowledgeIndexStatus | null>(null);
   const [knowledgeUploadNotice, setKnowledgeUploadNotice] = useState<string | null>(null);
@@ -173,10 +347,123 @@ export default function App() {
   const latestSession = useRef(session);
   latestSession.current = session;
 
+  function announceProjectNotice(message: string) {
+    setProjectsNotice(message);
+    window.setTimeout(() => {
+      setProjectsNotice((current) => (current === message ? null : current));
+    }, 2600);
+  }
+
+  function announceSyncNotice(message: string) {
+    setSyncNotice(message);
+    window.setTimeout(() => {
+      setSyncNotice((current) => (current === message ? null : current));
+    }, 2600);
+  }
+
+  async function switchProject(project: ProjectSummary, silent = false) {
+    setIsSwitchingProject(true);
+    setPaymentRequest(null);
+    setEditingField(null);
+    setInput("");
+
+    try {
+      if (project.primary_session_id) {
+        const snapshot = await getSessionSnapshot(project.primary_session_id);
+        setSession(hydrateSessionFromSnapshot(snapshot));
+      } else {
+        setSession(
+          createDraftSession({
+            project_id: project.project_id,
+            project_name: project.project_name,
+            stage: project.stage
+          })
+        );
+      }
+
+      if (!silent) announceProjectNotice(`已切换到 ${project.project_name}`);
+    } catch (error) {
+      setSession(
+        createDraftSession({
+          project_id: project.project_id,
+          project_name: project.project_name,
+          stage: project.stage
+        })
+      );
+      announceProjectNotice(error instanceof Error ? error.message : "项目快照读取失败，已回退到空白草稿。");
+    } finally {
+      setIsSwitchingProject(false);
+    }
+  }
+
+  async function refreshProjects(autoSelectFirst = false, silent = false) {
+    if (!silent) setIsProjectsLoading(true);
+
+    try {
+      const nextProjects = await listProjects();
+      setProjects(nextProjects);
+      setProjectsNotice(null);
+
+      if (autoSelectFirst && !latestSession.current.project && nextProjects[0]) {
+        await switchProject(nextProjects[0], true);
+        return;
+      }
+
+      const currentProjectId = latestSession.current.project?.project_id;
+      if (currentProjectId) {
+        const matched = nextProjects.find((project) => project.project_id === currentProjectId);
+        if (matched) {
+          setSession((current) => ({
+            ...current,
+            project: {
+              project_id: matched.project_id,
+              project_name: matched.project_name,
+              stage: matched.stage
+            }
+          }));
+        }
+      }
+    } catch (error) {
+      setProjectsNotice(error instanceof Error ? error.message : "项目列表读取失败");
+    } finally {
+      if (!silent) setIsProjectsLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!isAdminMode) return;
     void refreshKnowledgeStatus();
   }, [isAdminMode]);
+
+  useEffect(() => {
+    void refreshProjects(true);
+  }, []);
+
+  useEffect(() => {
+    if (!session.project) {
+      setActiveProjectDetail(null);
+      setIsProjectDetailLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsProjectDetailLoading(true);
+
+    void getProjectDetail(session.project.project_id)
+      .then((detail) => {
+        if (!cancelled) setActiveProjectDetail(detail);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveProjectDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsProjectDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.project?.project_id, session.state_version]);
 
   const orderedFields = useMemo(
     () => [
@@ -196,6 +483,11 @@ export default function App() {
   async function sendChat(content: string, source: "text" | "voice" | "file" = "text") {
     const trimmed = content.trim();
     if (!trimmed || isSending) return;
+    if (sessionApiMode === "backend" && !latestSession.current.project) {
+      announceProjectNotice("请先在左侧创建或选择项目，再开始当前商机对话。");
+      return;
+    }
+
     setIsSending(true);
     setInput("");
     setSession((current) => ({
@@ -240,11 +532,35 @@ export default function App() {
           knowledge_hits: result.data.knowledge_hits.length
             ? result.data.knowledge_hits
             : current.knowledge_hits,
-          suggestion: result.data.suggestion ?? current.suggestion
+          suggestion: result.data.suggestion ?? current.suggestion,
+          project: result.data.project ?? current.project
         };
       });
+      void refreshProjects(false, true);
+    } catch (error) {
+      announceSyncNotice(error instanceof Error ? error.message : "对话同步失败");
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function handleCreateProject() {
+    if (isCreatingProject) return;
+
+    setIsCreatingProject(true);
+    try {
+      const project = await createProject(projectDraftName);
+      setProjectDraftName("");
+      setProjects((current) => [
+        project,
+        ...current.filter((item) => item.project_id !== project.project_id)
+      ]);
+      await switchProject(project, true);
+      announceProjectNotice(`已创建并打开 ${project.project_name}`);
+    } catch (error) {
+      announceProjectNotice(error instanceof Error ? error.message : "项目创建失败");
+    } finally {
+      setIsCreatingProject(false);
     }
   }
 
@@ -285,103 +601,137 @@ export default function App() {
 
   async function commitOverride(field: DashboardField) {
     if (!editingField) return;
+    if (sessionApiMode === "backend" && !isProjectSessionBound(latestSession.current)) {
+      announceSyncNotice("请先发送一条项目线索，系统完成项目绑定后再做看板修正。");
+      setEditingField(null);
+      return;
+    }
+
     const value = editingValue.trim();
     setEditingField(null);
     setSyncNotice("正在同步手动修正...");
 
-    const result = await postSessionOverride({
-      session: latestSession.current,
-      field_code: field.code,
-      value
-    });
+    try {
+      const result = await postSessionOverride({
+        session: latestSession.current,
+        field_code: field.code,
+        value
+      });
 
-    setSession((current) => {
-      const fields = applyFieldPatch(
-        current.dashboard_fields,
-        field.code,
-        result.data.normalized_value,
-        "dashboard_edit",
-        1,
-        false,
-        result.data.triggered_risks.some((risk) => risk.trigger_fields.includes(field.code))
-      );
-      return {
-        ...current,
-        state_version: result.state_version,
-        completion: completionForState(current.fsm_state, fields),
-        dashboard_fields: fields,
-        triggered_risks: uniqueRisks(result.data.triggered_risks),
-        suggestion: result.data.suggestion,
-        messages: [...current.messages, makeMessage("ai", result.data.ai_notice)]
-      };
-    });
+      setSession((current) => {
+        const fields = applyFieldPatch(
+          current.dashboard_fields,
+          field.code,
+          result.data.normalized_value,
+          "dashboard_edit",
+          1,
+          false,
+          result.data.triggered_risks.some((risk) => risk.trigger_fields.includes(field.code))
+        );
+        return {
+          ...current,
+          state_version: result.state_version,
+          completion: completionForState(current.fsm_state, fields),
+          dashboard_fields: fields,
+          triggered_risks: uniqueRisks(result.data.triggered_risks),
+          suggestion: result.data.suggestion,
+          messages: [...current.messages, makeMessage("ai", result.data.ai_notice)]
+        };
+      });
 
-    setSyncNotice("已同步到导出上下文");
-    window.setTimeout(() => setSyncNotice(null), 2200);
+      announceSyncNotice("已同步到导出上下文");
+      void refreshProjects(false, true);
+    } catch (error) {
+      announceSyncNotice(error instanceof Error ? error.message : "手动修正同步失败");
+    }
   }
 
   async function startExport(
     approved = false,
     paymentMode: "simulate_99_rmb" | "free_preview" = "simulate_99_rmb"
   ) {
-    setIsExporting(true);
-    const result = await getSessionExport({
-      session: latestSession.current,
-      payment_mode: paymentMode,
-      approved
-    });
-    setIsExporting(false);
-
-    if (!result.ok) {
-      setPaymentRequest(result);
+    if (sessionApiMode === "backend" && !latestSession.current.project) {
+      announceProjectNotice("请先创建或选择项目，再生成导出文件。");
+      return;
+    }
+    if (sessionApiMode === "backend" && !isProjectSessionBound(latestSession.current)) {
+      announceSyncNotice("请先发送一条项目线索，系统会先把导出绑定到当前项目。");
       return;
     }
 
-    setPaymentRequest(null);
-    setSession((current) => ({
-      ...current,
-      state_version: result.state_version,
-      export_status: "exported",
-      export_asset: result.data.asset,
-      messages: [
-        ...current.messages,
-        makeMessage(
-          "ai",
-          result.data.export_status === "preview_ready"
-            ? "免费预览版已生成，正式版仍会保留99元支付意愿验证。"
-            : "正式版Word技术方案已模拟生成，章节、风险提示和价格占位符都已通过导出校验。"
-        )
-      ]
-    }));
+    setIsExporting(true);
+    try {
+      const result = await getSessionExport({
+        session: latestSession.current,
+        payment_mode: paymentMode,
+        approved
+      });
+
+      if (!result.ok) {
+        setPaymentRequest(result);
+        return;
+      }
+
+      setPaymentRequest(null);
+      setSession((current) => ({
+        ...current,
+        state_version: result.state_version,
+        export_status: "exported",
+        export_asset: result.data.asset,
+        messages: [
+          ...current.messages,
+          makeMessage(
+            "ai",
+            result.data.export_status === "preview_ready"
+              ? "免费预览版已生成，正式版仍会保留99元支付意愿验证。"
+              : "正式版Word技术方案已模拟生成，章节、风险提示和价格占位符都已通过导出校验。"
+          )
+        ]
+      }));
+    } catch (error) {
+      announceSyncNotice(error instanceof Error ? error.message : "导出请求失败");
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   function resetSession() {
-    setSession({
-      ...initialSession,
-      messages: initialSession.messages.map((message) => ({
-        ...message,
-        timestamp: new Date().toISOString()
-      }))
-    });
+    setSession(createDraftSession(latestSession.current.project));
     setPaymentRequest(null);
     setInput("");
     setSyncNotice(null);
+    if (latestSession.current.project) {
+      announceProjectNotice(`已为 ${latestSession.current.project.project_name} 新开一轮摸底草稿`);
+    }
   }
 
   return (
     <main className="app-shell">
       <Sidebar
         onReset={resetSession}
+        projects={projects}
+        activeProjectId={session.project?.project_id ?? null}
+        projectDraftName={projectDraftName}
+        projectsNotice={projectsNotice}
+        isProjectsLoading={isProjectsLoading}
+        isCreatingProject={isCreatingProject}
+        isSwitchingProject={isSwitchingProject}
         isAdminMode={isAdminMode}
         knowledgeStatus={knowledgeStatus}
         knowledgeUploadNotice={knowledgeUploadNotice}
         isKnowledgeUploading={isKnowledgeUploading}
+        onProjectDraftNameChange={setProjectDraftName}
+        onCreateProject={handleCreateProject}
+        onSelectProject={switchProject}
+        onRefreshProjects={() => void refreshProjects(false)}
         onKnowledgeUpload={uploadKnowledge}
         onRefreshKnowledgeStatus={refreshKnowledgeStatus}
       />
       <section className="workbench">
         <ChatPanel
           session={session}
+          projectDetail={activeProjectDetail}
+          isProjectDetailLoading={isProjectDetailLoading}
           input={input}
           isSending={isSending}
           onInput={setInput}
@@ -390,6 +740,8 @@ export default function App() {
         />
         <DashboardPanel
           session={session}
+          projectDetail={activeProjectDetail}
+          isProjectDetailLoading={isProjectDetailLoading}
           fields={orderedFields}
           editingField={editingField}
           editingValue={editingValue}
@@ -420,18 +772,40 @@ export default function App() {
 
 function Sidebar({
   onReset,
+  projects,
+  activeProjectId,
+  projectDraftName,
+  projectsNotice,
+  isProjectsLoading,
+  isCreatingProject,
+  isSwitchingProject,
   isAdminMode,
   knowledgeStatus,
   knowledgeUploadNotice,
   isKnowledgeUploading,
+  onProjectDraftNameChange,
+  onCreateProject,
+  onSelectProject,
+  onRefreshProjects,
   onKnowledgeUpload,
   onRefreshKnowledgeStatus
 }: {
   onReset: () => void;
+  projects: ProjectSummary[];
+  activeProjectId: string | null;
+  projectDraftName: string;
+  projectsNotice: string | null;
+  isProjectsLoading: boolean;
+  isCreatingProject: boolean;
+  isSwitchingProject: boolean;
   isAdminMode: boolean;
   knowledgeStatus: KnowledgeIndexStatus | null;
   knowledgeUploadNotice: string | null;
   isKnowledgeUploading: boolean;
+  onProjectDraftNameChange: (value: string) => void;
+  onCreateProject: () => void | Promise<void>;
+  onSelectProject: (project: ProjectSummary) => void | Promise<void>;
+  onRefreshProjects: () => void;
   onKnowledgeUpload: (file: File | null) => void;
   onRefreshKnowledgeStatus: () => void;
 }) {
@@ -452,6 +826,70 @@ function Sidebar({
         新建商机摸底
       </button>
 
+      <section className="sidebar-section project-section">
+        <div className="project-section-head">
+          <span className="section-label">项目协作</span>
+          <button
+            className="admin-refresh"
+            type="button"
+            onClick={onRefreshProjects}
+            disabled={isProjectsLoading}
+          >
+            {isProjectsLoading ? <Loader2 className="spin" size={14} /> : <RefreshCw size={14} />}
+            刷新
+          </button>
+        </div>
+
+        <div className="project-create">
+          <input
+            value={projectDraftName}
+            onChange={(event) => onProjectDraftNameChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void onCreateProject();
+            }}
+            placeholder="输入项目名，可留空生成默认名"
+          />
+          <button
+            type="button"
+            className="primary-action compact"
+            onClick={onCreateProject}
+            disabled={isCreatingProject}
+          >
+            {isCreatingProject ? <Loader2 className="spin" size={16} /> : <Plus size={16} />}
+            新建
+          </button>
+        </div>
+
+        {projectsNotice && <p className="sidebar-note">{projectsNotice}</p>}
+
+        <div className="project-list">
+          {projects.length === 0 ? (
+            <div className="project-empty">
+              <Building2 size={16} />
+              <span>{isProjectsLoading ? "正在读取项目列表..." : "还没有项目，先创建一个再开始摸底。"}</span>
+            </div>
+          ) : (
+            projects.map((project) => (
+              <button
+                key={project.project_id}
+                className={`project-item ${activeProjectId === project.project_id ? "active" : ""}`}
+                onClick={() => void onSelectProject(project)}
+                disabled={isSwitchingProject}
+              >
+                <Building2 size={16} />
+                <span className="project-item-body">
+                  <strong>{project.project_name}</strong>
+                  <small>
+                    {projectStageLabel(project.stage)}
+                    {project.primary_session_id ? " · 已绑定会话" : " · 待首轮沟通"}
+                  </small>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+
       {isAdminMode && (
         <AdminKnowledgeUpload
           status={knowledgeStatus}
@@ -462,25 +900,9 @@ function Sidebar({
         />
       )}
 
-      <div className="sidebar-section">
-        <span className="section-label">内测模拟商机</span>
-        <button className="project-item active">
-          <Building2 size={16} />
-          <span>某市人民医院机房建设项目</span>
-        </button>
-        <button className="project-item">
-          <Building2 size={16} />
-          <span>区政务云中心扩容项目</span>
-        </button>
-        <button className="project-item">
-          <Building2 size={16} />
-          <span>某工厂利旧改造项目</span>
-        </button>
-      </div>
-
       <div className="sidebar-foot">
         <ShieldAlert size={16} />
-        <span>规则引擎优先于LLM推断</span>
+        <span>先选项目再开聊，后续看板、会话快照和导出都会按项目归档。</span>
       </div>
     </aside>
   );
@@ -537,6 +959,8 @@ function AdminKnowledgeUpload({
 
 function ChatPanel({
   session,
+  projectDetail,
+  isProjectDetailLoading,
   input,
   isSending,
   onInput,
@@ -544,27 +968,39 @@ function ChatPanel({
   onQuickReply
 }: {
   session: SessionSnapshot;
+  projectDetail: ProjectDetail | null;
+  isProjectDetailLoading: boolean;
   input: string;
   isSending: boolean;
   onInput: (value: string) => void;
   onSend: () => void;
   onQuickReply: (value: string) => void;
 }) {
-  const projectTitle = session.dashboard_fields.customer_name.value
-    ? session.dashboard_fields.customer_name.displayValue
-    : "新机房商机";
+  const projectTitle = session.project?.project_name
+    ? session.project.project_name
+    : session.dashboard_fields.customer_name.value
+      ? session.dashboard_fields.customer_name.displayValue
+      : "请选择项目后开始摸底";
 
   return (
     <section className="chat-panel">
       <header className="panel-header chat-titlebar">
         <div>
-          <p>当前商机</p>
+          <p>{session.project ? `当前项目 · ${projectStageLabel(session.project.stage)}` : "当前商机"}</p>
           <h2>{projectTitle}</h2>
         </div>
         <div className={`completion-pill completion-${session.completion >= 95 ? "ready" : "active"}`}>
           采集率 {session.completion}%
         </div>
       </header>
+
+      {session.project && (
+        <ProjectOverviewStrip
+          session={session}
+          projectDetail={projectDetail}
+          isLoading={isProjectDetailLoading}
+        />
+      )}
 
       <div className="message-list">
         {session.messages.map((message) => (
@@ -614,6 +1050,8 @@ function ChatPanel({
 
 function DashboardPanel({
   session,
+  projectDetail,
+  isProjectDetailLoading,
   fields,
   editingField,
   editingValue,
@@ -626,6 +1064,8 @@ function DashboardPanel({
   onExport
 }: {
   session: SessionSnapshot;
+  projectDetail: ProjectDetail | null;
+  isProjectDetailLoading: boolean;
   fields: DashboardField[];
   editingField: string | null;
   editingValue: string;
@@ -640,6 +1080,11 @@ function DashboardPanel({
   return (
     <aside className="dashboard-panel">
       <div className="dashboard-scroll">
+        <ProjectContextCard
+          session={session}
+          projectDetail={projectDetail}
+          isLoading={isProjectDetailLoading}
+        />
         <RiskCard risks={session.triggered_risks} />
         <KnowledgeCard hits={session.knowledge_hits} />
         <CommercialSummaryCard hits={session.knowledge_hits} />
@@ -684,6 +1129,55 @@ function DashboardPanel({
         </button>
       </div>
     </aside>
+  );
+}
+
+function ProjectOverviewStrip({
+  session,
+  projectDetail,
+  isLoading
+}: {
+  session: SessionSnapshot;
+  projectDetail: ProjectDetail | null;
+  isLoading: boolean;
+}) {
+  const snapshotStats = countSnapshotFields(session.dashboard_fields);
+  const highlightFields = snapshotHighlightFields(session.dashboard_fields);
+  const archivedSessionId =
+    projectDetail?.primary_session_id ?? (isProjectSessionBound(session) ? session.session_id : null);
+
+  return (
+    <section className="project-overview">
+      <div className="project-overview-grid">
+        <Metric label="已采集字段" value={`${snapshotStats.captured}/${snapshotStats.total}`} />
+        <Metric label="待确认" value={`${snapshotStats.pending}项`} />
+        <Metric label="风险提示" value={`${session.triggered_risks.length}条`} />
+        <Metric label="资料命中" value={`${session.knowledge_hits.length}条`} />
+      </div>
+
+      {highlightFields.length > 0 ? (
+        <ProjectSnapshotChips fields={highlightFields} />
+      ) : (
+        <p className="project-overview-empty">
+          当前项目还没有形成可复用快照，先把客户原话、面积、楼层、UPS或机柜线索发进来。
+        </p>
+      )}
+
+      <p className="project-overview-note">
+        {isLoading ? (
+          <Loader2 className="spin" size={14} />
+        ) : archivedSessionId ? (
+          <Check size={14} />
+        ) : (
+          <RefreshCw size={14} />
+        )}
+        <span>
+          {archivedSessionId
+            ? `项目快照已归档到会话 ${archivedSessionId.slice(-8)} · 最近同步 ${formatTimestampLabel(projectDetail?.updated_at)}`
+            : "当前还是项目草稿，发一条项目线索后会自动写入项目档案。"}
+        </span>
+      </p>
+    </section>
   );
 }
 
@@ -745,6 +1239,91 @@ function FieldEditor({
         </button>
       )}
       <span className="field-source">{sourceLabel(field.source)}</span>
+    </div>
+  );
+}
+
+function ProjectContextCard({
+  session,
+  projectDetail,
+  isLoading
+}: {
+  session: SessionSnapshot;
+  projectDetail: ProjectDetail | null;
+  isLoading: boolean;
+}) {
+  if (!session.project) {
+    return (
+      <section className="dash-card quiet-card">
+        <div className="quiet-state">
+          <Building2 size={20} />
+          <span>先在左侧创建或选择项目，聊天与导出才会写入项目协作上下文。</span>
+        </div>
+      </section>
+    );
+  }
+
+  const hasArchivedSnapshot = Boolean(
+    projectDetail?.primary_session_id && snapshotFieldList(projectDetail.dashboard_snapshot).length > 0
+  );
+  const snapshotSource =
+    hasArchivedSnapshot && projectDetail ? projectDetail.dashboard_snapshot : session.dashboard_fields;
+  const snapshotStats = countSnapshotFields(snapshotSource);
+  const highlightFields = snapshotHighlightFields(snapshotSource, 5);
+
+  return (
+    <section className="dash-card project-context-card">
+      <div className="card-heading">
+        <div>
+          <p>项目协作上下文</p>
+          <h3>{session.project.project_name}</h3>
+        </div>
+        <span className={`stage-chip ${projectStageClass(session.project.stage)}`}>
+          {projectStageLabel(session.project.stage)}
+        </span>
+      </div>
+      <div className="project-context-grid">
+        <Metric label="项目阶段" value={projectStageLabel(session.project.stage)} />
+        <Metric label="会话版本" value={`v${session.state_version}`} />
+        <Metric label="当前会话" value={session.session_id.slice(-8)} />
+      </div>
+      <div className="project-context-grid project-context-secondary">
+        <Metric label="已采集字段" value={`${snapshotStats.captured}/${snapshotStats.total}`} />
+        <Metric label="待确认" value={`${snapshotStats.pending}项`} />
+        <Metric
+          label="最近归档"
+          value={
+            hasArchivedSnapshot && projectDetail?.updated_at
+              ? formatTimestampLabel(projectDetail.updated_at)
+              : "待归档"
+          }
+        />
+      </div>
+      {highlightFields.length > 0 ? (
+        <ProjectSnapshotChips fields={highlightFields} compact />
+      ) : (
+        <p className="project-context-note">
+          {isLoading ? "正在读取项目快照..." : "当前项目还没有可展示的归档字段。"}
+        </p>
+      )}
+      <p className="project-context-note">
+        {isProjectSessionBound(session)
+          ? `当前对话已绑定到后端项目${projectDetail?.primary_session_id ? `（归档会话 ${projectDetail.primary_session_id.slice(-8)}）` : ""}，会随着聊天、看板修正和导出一起推进。`
+          : "当前是项目草稿会话。先发一条项目线索，系统才会把本轮摸底正式绑定到后端项目。"}
+      </p>
+    </section>
+  );
+}
+
+function ProjectSnapshotChips({ fields, compact = false }: { fields: DashboardField[]; compact?: boolean }) {
+  return (
+    <div className={`project-snapshot-chips ${compact ? "compact" : ""}`}>
+      {fields.map((field) => (
+        <span key={field.code} className="project-snapshot-chip">
+          <b>{field.label}</b>
+          <strong>{field.displayValue}</strong>
+        </span>
+      ))}
     </div>
   );
 }

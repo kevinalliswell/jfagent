@@ -1,8 +1,12 @@
 import {
   completionForState,
+  createProject as createMockProject,
   displayForField,
+  getProjectDetail as getMockProjectDetail,
+  getSessionSnapshot as getMockSessionSnapshot,
   getSessionExport as getMockSessionExport,
   initialSession,
+  listProjects as listMockProjects,
   postSessionChat as postMockSessionChat,
   postSessionOverride as postMockSessionOverride,
   sourceLabel
@@ -14,6 +18,9 @@ import type {
   KnowledgeUploadResponseData,
   OverrideResponseData,
   PaymentRequiredError,
+  ProjectDetail,
+  ProjectSummary,
+  SessionSnapshotData,
   SessionSnapshot,
   SuccessEnvelope
 } from "./types";
@@ -127,6 +134,7 @@ export async function postSessionChat(params: {
     method: "POST",
     body: JSON.stringify({
       session_id: params.session.session_id,
+      project_id: params.session.project?.project_id,
       message_type: params.message_type,
       content: params.content,
       client_state_version: params.session.state_version,
@@ -174,6 +182,61 @@ export async function getSessionExport(params: {
     result.data.asset.download_url = `${apiBaseUrl}${result.data.asset.download_url}`;
   }
   return result;
+}
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  if (sessionApiMode === "mock") return listMockProjects();
+
+  const result = await requestJson<{
+    ok: true;
+    server_time: string;
+    data: { projects: ProjectSummary[] };
+  }>("/api/projects");
+  return result.data.projects;
+}
+
+export async function createProject(name?: string): Promise<ProjectSummary> {
+  if (sessionApiMode === "mock") return createMockProject(name);
+
+  const result = await requestJson<{
+    ok: true;
+    server_time: string;
+    data: { project: ProjectDetail };
+  }>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify(name?.trim() ? { name } : {})
+  });
+
+  const { project } = result.data;
+  return {
+    project_id: project.project_id,
+    project_name: project.project_name,
+    stage: project.stage,
+    primary_session_id: project.primary_session_id,
+    updated_at: project.updated_at
+  };
+}
+
+export async function getSessionSnapshot(sessionId: string): Promise<SessionSnapshotData> {
+  if (sessionApiMode === "mock") return getMockSessionSnapshot(sessionId);
+
+  const result = await requestJson<{
+    ok: true;
+    server_time: string;
+    data: SessionSnapshotData;
+  }>(`/api/session?session_id=${encodeURIComponent(sessionId)}`);
+  return result.data;
+}
+
+export async function getProjectDetail(projectId: string): Promise<ProjectDetail> {
+  if (sessionApiMode === "mock") return getMockProjectDetail(projectId);
+
+  const result = await requestJson<{
+    ok: true;
+    server_time: string;
+    data: { project: ProjectDetail };
+  }>(`/api/projects/${encodeURIComponent(projectId)}`);
+  return result.data.project;
 }
 
 export async function getKnowledgeStatus(): Promise<{

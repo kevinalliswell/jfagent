@@ -7,7 +7,11 @@ import type {
   KnowledgeHit,
   OverrideResponseData,
   PaymentRequiredError,
+  ProjectContext,
+  ProjectDetail,
+  ProjectSummary,
   RiskFlag,
+  SessionSnapshotData,
   SessionSnapshot,
   SuccessEnvelope
 } from "./types";
@@ -30,6 +34,32 @@ const field = (
   confidence: 0,
   needs_confirmation: true
 });
+
+const defaultMockProjects: ProjectSummary[] = [
+  {
+    project_id: "proj_seed_hospital",
+    project_name: "某市人民医院机房建设项目",
+    stage: "solution_ready",
+    primary_session_id: "sess_seed_hospital",
+    updated_at: now()
+  },
+  {
+    project_id: "proj_seed_gov",
+    project_name: "区政务云中心扩容项目",
+    stage: "clarifying",
+    primary_session_id: null,
+    updated_at: now()
+  },
+  {
+    project_id: "proj_seed_factory",
+    project_name: "某工厂利旧改造项目",
+    stage: "intake",
+    primary_session_id: null,
+    updated_at: now()
+  }
+];
+
+let mockProjects = defaultMockProjects.map((project) => ({ ...project }));
 
 export const initialSession: SessionSnapshot = {
   session_id: "sess_seed_hospital",
@@ -60,7 +90,12 @@ export const initialSession: SessionSnapshot = {
   triggered_risks: [],
   suggestion: null,
   knowledge_hits: searchKnowledge("机房 UPS 精密空调 需求表", 3),
-  export_asset: null
+  export_asset: null,
+  project: {
+    project_id: "proj_seed_hospital",
+    project_name: "某市人民医院机房建设项目",
+    stage: "solution_ready"
+  }
 };
 
 const riskFloorLoading: RiskFlag = {
@@ -189,6 +224,89 @@ function response<T>(sessionId: string, version: number, data: T): SuccessEnvelo
   };
 }
 
+function cloneProjectContext(project: ProjectContext | null) {
+  return project ? { ...project } : null;
+}
+
+function cloneDashboardFields(fields: SessionSnapshot["dashboard_fields"]) {
+  return Object.fromEntries(Object.entries(fields).map(([code, field]) => [code, { ...field }]));
+}
+
+function cloneKnowledgeHits(hits: KnowledgeHit[]) {
+  return hits.map((hit) => ({ ...hit }));
+}
+
+function cloneTriggeredRisks(risks: RiskFlag[]) {
+  return risks.map((risk) => ({
+    ...risk,
+    trigger_fields: [...risk.trigger_fields]
+  }));
+}
+
+function cloneSuggestion(suggestion: SessionSnapshot["suggestion"]) {
+  return suggestion ? { ...suggestion } : null;
+}
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  await wait(120);
+  return mockProjects
+    .slice()
+    .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+    .map((project) => ({ ...project }));
+}
+
+export async function createProject(name?: string): Promise<ProjectSummary> {
+  await wait(160);
+  const project: ProjectSummary = {
+    project_id: `proj_mock_${Math.random().toString(16).slice(2, 10)}`,
+    project_name: name?.trim() || `未命名项目 ${new Date().toISOString().slice(0, 10)}`,
+    stage: "intake",
+    primary_session_id: null,
+    updated_at: now()
+  };
+  mockProjects = [project, ...mockProjects];
+  return { ...project };
+}
+
+export async function getSessionSnapshot(sessionId: string): Promise<SessionSnapshotData> {
+  await wait(120);
+  if (sessionId !== initialSession.session_id) {
+    throw new Error("模拟项目还没有可恢复的会话快照。");
+  }
+
+  return {
+    session: {
+      session_id: initialSession.session_id,
+      project_id: initialSession.project?.project_id ?? null,
+      state_version: initialSession.state_version,
+      fsm_state: initialSession.fsm_state,
+      export_status: initialSession.export_status,
+      dashboard_fields: cloneDashboardFields(initialSession.dashboard_fields),
+      triggered_risks: cloneTriggeredRisks(initialSession.triggered_risks),
+      knowledge_hits: cloneKnowledgeHits(initialSession.knowledge_hits),
+      suggestion: cloneSuggestion(initialSession.suggestion)
+    },
+    project: cloneProjectContext(initialSession.project)
+  };
+}
+
+export async function getProjectDetail(projectId: string): Promise<ProjectDetail> {
+  await wait(120);
+  const project = mockProjects.find((item) => item.project_id === projectId);
+  if (!project) {
+    throw new Error("模拟项目不存在。");
+  }
+
+  return {
+    ...project,
+    created_at: project.updated_at,
+    dashboard_snapshot:
+      initialSession.project?.project_id === projectId
+        ? cloneDashboardFields(initialSession.dashboard_fields)
+        : {}
+  };
+}
+
 export async function postSessionChat(params: {
   session: SessionSnapshot;
   message_type: "text" | "voice" | "file";
@@ -230,6 +348,7 @@ export async function postSessionChat(params: {
       field_patches: [patch("budget_range_high_rmb", null, budgetRmb, "user_message", 0.9)],
       triggered_risks: risk,
       knowledge_hits: session.knowledge_hits,
+      project: cloneProjectContext(session.project),
       state: {
         fsm_state: "S3_READY_MONETIZATION",
         export_status: "ready",
@@ -250,6 +369,7 @@ export async function postSessionChat(params: {
       field_patches: [patch("rack_count", null, rackCount, "button_chip", 0.95)],
       triggered_risks: [riskFloorLoading, riskElevatorHeight],
       knowledge_hits: session.knowledge_hits.length ? session.knowledge_hits : knowledgeHits,
+      project: cloneProjectContext(session.project),
       state: {
         fsm_state: "S3_READY_MONETIZATION",
         export_status: "ready",
@@ -306,6 +426,7 @@ export async function postSessionChat(params: {
       field_patches: patches,
       triggered_risks: risks,
       knowledge_hits: knowledgeHits,
+      project: cloneProjectContext(session.project),
       state: {
         fsm_state: stateReady ? "S3_READY_MONETIZATION" : "S2_PROACTIVE_INQUIRIES",
         export_status: stateReady ? "ready" : "draft",
@@ -324,6 +445,7 @@ export async function postSessionChat(params: {
     field_patches: [],
     triggered_risks: session.triggered_risks,
     knowledge_hits: session.knowledge_hits,
+    project: cloneProjectContext(session.project),
     state: {
       fsm_state: session.fsm_state,
       export_status: session.export_status,
@@ -439,8 +561,8 @@ export async function getSessionExport(params: {
     asset: {
       asset_id: isPreview ? "asset_preview_001" : "asset_docx_001",
       file_name: isPreview
-        ? "某市人民医院中心机房改造项目_预览版.pdf"
-        : "某市人民医院中心机房改造项目_技术方案_v1.docx",
+        ? `${session.project?.project_name ?? "某市人民医院中心机房改造项目"}_预览版.pdf`
+        : `${session.project?.project_name ?? "某市人民医院中心机房改造项目"}_技术方案_v1.docx`,
       mime_type: isPreview
         ? "application/pdf"
         : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

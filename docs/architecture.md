@@ -44,7 +44,7 @@ Seed user/admin
   -> Docker volumes for uploads and generated exports
 ```
 
-The frontend now calls through `src/sessionApi.ts`, which defaults to `src/mockApi.ts` and can be switched to the backend API skeleton with `VITE_SESSION_API_MODE=backend`. In backend mode, `/api/session/chat` is responsible for returning `knowledge_hits`; the browser only renders the citations it receives.
+The frontend now calls through `src/sessionApi.ts`, which defaults to `src/mockApi.ts` and can be switched to the backend API skeleton with `VITE_SESSION_API_MODE=backend`. In backend mode, the frontend also consumes `/api/projects`, `GET /api/session`, and `GET /api/projects/{project_id}` so the left sidebar can create/select projects, restore bound session snapshots, surface project snapshot summaries, and keep chat/export flows anchored to a chosen project. `/api/session/chat` remains responsible for returning `knowledge_hits`; the browser only renders the citations it receives.
 
 ## Target Architecture
 
@@ -132,6 +132,7 @@ Location: `src/`
 Responsibilities:
 
 - Chat-style project intake.
+- Project creation, selection, snapshot hydration, and project snapshot summary display from the backend project domain.
 - Quick reply chips.
 - Editable dashboard fields.
 - Risk and knowledge citation display.
@@ -139,9 +140,9 @@ Responsibilities:
 
 Current important files:
 
-- `src/App.tsx`: main UI and local state wiring.
-- `src/sessionApi.ts`: switchable session API adapter, defaulting to mock mode.
-- `src/mockApi.ts`: mock API behavior, extraction, retrieval, export simulation.
+- `src/App.tsx`: main UI, project sidebar, project snapshot overview cards, snapshot hydration, and local state wiring.
+- `src/sessionApi.ts`: switchable session API adapter for chat, export, project CRUD, project detail reads, and session snapshot fetches.
+- `src/mockApi.ts`: mock API behavior, extraction, retrieval, export simulation, local project list fallbacks, and project detail fallbacks.
 - `src/types.ts`: shared frontend/session types.
 - `src/styles.css`: UI styling.
 - `src/generatedKnowledge.ts`: generated local knowledge chunks.

@@ -1,4 +1,5 @@
 export type MessageType = "text" | "voice" | "file";
+export type ProjectStage = "intake" | "clarifying" | "solution_ready";
 
 export type FieldSource =
   | "user_message"
@@ -145,6 +146,37 @@ export interface ExportPayloadV1 {
   [key: string]: unknown;
 }
 
+export interface ProjectContext {
+  project_id: string;
+  project_name: string;
+  stage: ProjectStage;
+}
+
+export interface ProjectSummary extends ProjectContext {
+  primary_session_id: string | null;
+  updated_at: string;
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  created_at: string;
+  dashboard_snapshot: Record<string, DashboardField>;
+}
+
+export interface SessionSnapshotData {
+  session: {
+    session_id: string;
+    project_id: string | null;
+    state_version: number;
+    fsm_state: FsmState;
+    export_status: ExportStatus;
+    dashboard_fields: Record<string, DashboardField>;
+    triggered_risks: RiskFlag[];
+    knowledge_hits: KnowledgeHit[];
+    suggestion: SuggestionSummary | null;
+  };
+  project: ProjectContext | null;
+}
+
 export interface SessionSnapshot {
   session_id: string;
   state_version: number;
@@ -158,6 +190,7 @@ export interface SessionSnapshot {
   suggestion: SuggestionSummary | null;
   knowledge_hits: KnowledgeHit[];
   export_asset: ExportAsset | null;
+  project: ProjectContext | null;
 }
 
 export interface ChatResponseData {
@@ -167,6 +200,7 @@ export interface ChatResponseData {
   field_patches: FieldPatch[];
   triggered_risks: RiskFlag[];
   knowledge_hits: KnowledgeHit[];
+  project: ProjectContext | null;
   state: {
     fsm_state: FsmState;
     export_status: ExportStatus;
