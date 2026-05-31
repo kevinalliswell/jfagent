@@ -279,6 +279,64 @@ dashboard_edit > user_message > upload > button_chip > agent_inference > default
 12. Session/project/export/upload metadata survive API restarts because the backend reloads them from SQLite-backed storage.
 13. On reload, the backend re-derives suggestion, risk, and FSM status from dashboard fields so the project cockpit always reflects current product semantics instead of stale persisted copy.
 
+## Mock vs Backend Parity
+
+The product ships in two interchangeable session implementations selected by
+`VITE_SESSION_API_MODE` (D-010):
+
+- **Mock mode** — `src/mockApi.ts`, the default demo path. Runs entirely in the
+  browser.
+- **Backend mode** — `server/sessionService.ts`, the real product path.
+
+They share the same TypeScript contracts (`ChatResponseData`,
+`OverrideResponseData`, `ExportResponseData`, `DashboardField`, …), so the UI
+does not branch on mode. But they are **two hand-maintained implementations**:
+when session/field/risk/export behavior changes in one, the other must be kept
+aligned or the divergence recorded here. This is the single highest structural
+drift risk in the repo — the demo can quietly stop matching the product.
+
+### Intentional differences (by design — do NOT try to unify)
+
+| Concern | Mock (`src/mockApi.ts`) | Backend (`server/sessionService.ts`) |
+| ------- | ----------------------- | ------------------------------------ |
+| State authority | Stateless per call; the frontend passes the full `session` in and back. No persistence. | Server-authoritative; `loadOrCreateSession` + SQLite, `state_version` owned by the server, retrieval audit logged (`:457`, `:495`). |
+| LLM | None. `agent_runtime` is always `fallback`/`provider: "mock"` (`:24`). | Optional OpenAI-compatible call via `generateAgentLlmResult`; `agent_inference` candidates filtered by `llmProtectedSources` (`:64`, `:499`). |
+| Conversation text | Rich canned `ai_response`/`quick_replies` per branch (`isBudget`/`isRackAnswer`/`isProjectSignal`, `:356`–`:478`). | Thin deterministic `fallbackAgentResponse` (`:409`) unless the real LLM answers. |
+| Export artifact | Canned asset, `download_url: "#mock-download"`, fixed `included_chapters` list (`:582`–`:619`). No real payload. | Real `ExportPayloadV1` + `python-docx` render; `included_chapters` derived from `chapter_plan`; willingness recorded (`:644`–`:679`). |
+| Projects / snapshot | 3 fixed seed projects; snapshot only for the one seed session (`:51`, `:289`). | Real project domain + persistence (`projectService`). |
+
+### Divergences to watch / reconcile (these are drift, keep them in sync)
+
+These are places where the two paths currently behave differently in ways that
+are **not** intentional product decisions. Fix in both, or consciously decide:
+
+1. **`riskBudgetMismatch` exists only in mock** (`src/mockApi.ts:134`, triggered
+   on budget `< 450000` in chat `:359` and override `:514`). The backend
+   `evaluateRisks` (`server/sessionService.ts:352`) only knows floor-loading and
+   elevator-height. → The demo shows a budget risk the real product never will.
+2. **Risk triggering shape differs.** Mock's `isRackAnswer` branch pushes
+   floor-loading + elevator risks unconditionally (`:390`), regardless of floor;
+   backend derives risks purely from field values. → Mock can surface risks the
+   backend would not for the same data.
+3. **`buildSuggestion.structuralNote` text differs** (`src/mockApi.ts:226` vs
+   `server/sessionService.ts:342`). Same formula, different wording.
+4. **FSM/state derivation differs.** Mock sets `fsm_state` per branch heuristic
+   (`:452`); backend derives it from field presence in `inferState` (`:361`) and
+   re-reconciles on every load. → For identical inputs the two can report
+   different stages/`export_status`.
+5. **Backend `editableFields`/`numericFields` are broader than `initialFields`**
+   (`:33`, `:44`, `:170`). Overriding a listed-but-not-initialized field (e.g.
+   `server_count`) passes the editable check then throws in `makePatch` (`:301`).
+   Mock's override accepts any `field_code`. → Latent backend 500; align the sets.
+
+### Rule for agents
+
+When you touch chat extraction, risk rules, suggestion math, FSM/state, override,
+or export in EITHER file, make the matching change in the other (or add a row
+above explaining why they intentionally differ). Verify both paths:
+`npm run check` exercises mock-mode types/build + the cockpit tests; `npm run
+api:smoke` exercises the backend path end-to-end.
+
 ## Key Boundaries
 
 In scope for the current MVP:

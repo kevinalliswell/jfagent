@@ -40,9 +40,11 @@ Definition of done (all must be true):
       — done 2026-05-31 (physical de-RAG + relocation tracked as T-030).
 - [x] The `AGENTS.md` naming bug is resolved (one uppercase contract file).
       — done 2026-05-31 (D-025).
-- [ ] Mock-vs-backend parity is documented: where `src/mockApi.ts` and
+- [x] Mock-vs-backend parity is documented: where `src/mockApi.ts` and
       `server/` intentionally differ is written down, so the demo and the real
-      product do not silently drift. — NEXT (T-028).
+      product do not silently drift. — done 2026-05-31 (T-028); see
+      `docs/architecture.md` "Mock vs Backend Parity". Logged 5 drift items to
+      reconcile (next agent should pick these up under the pilot phase).
 - [ ] Test coverage for the core deterministic logic (field extraction, risk
       triggering, export-payload assembly) exists beyond the 3 cockpit tests, so
       regressions are caught. — T-029.
