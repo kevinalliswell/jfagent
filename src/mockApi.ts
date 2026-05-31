@@ -17,6 +17,7 @@ import type {
   SuccessEnvelope
 } from "./types";
 import { searchKnowledge } from "./localVectorSearch";
+import { evaluateRiskIds } from "./mockSessionDerivation";
 
 const now = () => new Date().toISOString();
 const wait = (ms = 420) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -236,6 +237,14 @@ function buildSuggestion(rackCount: number, stale = false) {
   };
 }
 
+function evaluateRisks(session: SessionSnapshot, patches: FieldPatch[] = []) {
+  return evaluateRiskIds(session.dashboard_fields, patches).map((riskId) => {
+    if (riskId === riskFloorLoading.id) return riskFloorLoading;
+    if (riskId === riskElevatorHeight.id) return riskElevatorHeight;
+    return riskBudgetMismatch;
+  });
+}
+
 function response<T>(sessionId: string, version: number, data: T): SuccessEnvelope<T> {
   return {
     ok: true,
@@ -364,16 +373,16 @@ export async function postSessionChat(params: {
   if (isBudget) {
     const budgetWan = firstNumberAfter(text, ["预算", "万", "钱"]) ?? 30;
     const budgetRmb = budgetWan * 10000;
-    const risk = budgetRmb < 450000 ? [riskBudgetMismatch] : [];
+    const fieldPatches = [patch("budget_range_high_rmb", null, budgetRmb, "user_message", 0.9)];
+    const risks = evaluateRisks(session, fieldPatches);
     const data: ChatResponseData = {
-      ai_response:
-        risk.length > 0
-          ? "收到预算上限。这个金额可能压不住当前配置，我会在方案里准备可靠性优先和预算优先两档平替建议。"
-          : "收到预算口径，我会把预算约束带入后续方案说明。",
+      ai_response: risks.some((risk) => risk.id === riskBudgetMismatch.id)
+        ? "收到预算上限。这个金额可能压不住当前配置，我会在方案里准备可靠性优先和预算优先两档平替建议。"
+        : "收到预算口径，我会把预算约束带入后续方案说明。",
       quick_replies: ["整理交付稿", "调整机柜/UPS/空调"],
       updated_fields: { budget_range_high_rmb: budgetRmb },
-      field_patches: [patch("budget_range_high_rmb", null, budgetRmb, "user_message", 0.9)],
-      triggered_risks: risk,
+      field_patches: fieldPatches,
+      triggered_risks: risks,
       knowledge_hits: session.knowledge_hits,
       project: cloneProjectContext(session.project),
       state: {
@@ -389,13 +398,14 @@ export async function postSessionChat(params: {
 
   if (isRackAnswer) {
     const rackCount = text.includes("20") || text.includes("30") || text.includes("服务器") ? 5 : 10;
+    const fieldPatches = [patch("rack_count", null, rackCount, "button_chip", 0.95)];
     const data: ChatResponseData = {
       ai_response:
         "核心规模口径已对齐。我已经按当前机柜数量重算出 UPS、电池后备和精密空调建议，现在可以开始整理交付稿。",
       quick_replies: ["整理交付稿", "补充项目预算", "调整机柜/UPS/空调"],
       updated_fields: { rack_count: rackCount },
-      field_patches: [patch("rack_count", null, rackCount, "button_chip", 0.95)],
-      triggered_risks: [riskFloorLoading, riskElevatorHeight],
+      field_patches: fieldPatches,
+      triggered_risks: evaluateRisks(session, fieldPatches),
       knowledge_hits: session.knowledge_hits.length ? session.knowledge_hits : knowledgeHits,
       project: cloneProjectContext(session.project),
       state: {
@@ -429,10 +439,7 @@ export async function postSessionChat(params: {
       patches.push(patch("rack_count", null, null, "agent_inference", 0.2, true));
     }
 
-    const risks = [
-      ...(floor && floor >= 2 && backupMinutes && backupMinutes >= 120 ? [riskFloorLoading] : [])
-    ];
-    if (floor && floor >= 2) risks.push(riskElevatorHeight);
+    const risks = evaluateRisks(session, patches);
     const suggestion = inferredRackCount && backupMinutes ? buildSuggestion(inferredRackCount) : null;
     const stateReady = Boolean(inferredRackCount && hasMepSignal);
     const data: ChatResponseData = {
@@ -521,15 +528,7 @@ export async function postSessionOverride(params: {
       : Number(session.dashboard_fields.rack_count?.value || 10);
   const fieldLabel = session.dashboard_fields[field_code]?.label ?? field_code;
   const suggestion = buildSuggestion(rackCount, true);
-  const risks = [...session.triggered_risks];
-  if (
-    field_code === "budget_range_high_rmb" &&
-    typeof normalized === "number" &&
-    normalized < 450000 &&
-    !risks.some((risk) => risk.id === riskBudgetMismatch.id)
-  ) {
-    risks.push(riskBudgetMismatch);
-  }
+  const risks = evaluateRisks(session, [patch(field_code, oldValue, normalized, "dashboard_edit", 1, false)]);
 
   const data: OverrideResponseData = {
     sync_status: "synced",

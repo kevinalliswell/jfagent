@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { evaluateRiskIds } from "../src/mockSessionDerivation.ts";
 import { buildPresalesCockpit } from "../src/presalesCockpit.ts";
 import type {
   DashboardField,
+  FieldPatch,
   KnowledgeHit,
   ProjectContext,
   RiskFlag,
@@ -173,4 +175,19 @@ test("核心字段齐备且无阻塞时应进入可整理交付状态", () => {
   assert.equal(cockpit.evidenceSummary.commercialHitCount, 1);
   assert.equal(cockpit.completenessGroups[0]?.captured, 3);
   assert.equal(cockpit.completenessGroups[1]?.captured, 3);
+});
+
+test("mock 风险推导在仅补机柜数量时不应无条件触发楼层相关风险", () => {
+  const patches: FieldPatch[] = [
+    {
+      field_code: "rack_count",
+      old_value: null,
+      new_value: 10,
+      source: "button_chip",
+      confidence: 0.95,
+      needs_confirmation: false
+    }
+  ];
+
+  assert.deepEqual(evaluateRiskIds(makeSession().dashboard_fields, patches), []);
 });
