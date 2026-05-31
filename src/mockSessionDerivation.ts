@@ -1,5 +1,7 @@
 import type { FieldPatch, SessionSnapshot } from "./types";
 
+export const DEFAULT_STRUCTURAL_NOTE = "长延时电池方案需复核楼板承重与运输路线。";
+
 function fieldValueAfterPatches(
   fields: SessionSnapshot["dashboard_fields"],
   fieldCode: string,

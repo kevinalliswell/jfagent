@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { evaluateRiskIds } from "../src/mockSessionDerivation.ts";
+import { DEFAULT_STRUCTURAL_NOTE, evaluateRiskIds } from "../src/mockSessionDerivation.ts";
 import { buildPresalesCockpit } from "../src/presalesCockpit.ts";
 import type {
   DashboardField,
@@ -190,4 +190,8 @@ test("mock 风险推导在仅补机柜数量时不应无条件触发楼层相关
   ];
 
   assert.deepEqual(evaluateRiskIds(makeSession().dashboard_fields, patches), []);
+});
+
+test("mock 默认结构说明文案应与 backend 保持一致", () => {
+  assert.equal(DEFAULT_STRUCTURAL_NOTE, "长延时电池方案需复核楼板承重与运输路线。");
 });

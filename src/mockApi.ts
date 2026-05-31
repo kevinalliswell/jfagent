@@ -17,7 +17,7 @@ import type {
   SuccessEnvelope
 } from "./types";
 import { searchKnowledge } from "./localVectorSearch";
-import { evaluateRiskIds } from "./mockSessionDerivation";
+import { DEFAULT_STRUCTURAL_NOTE, evaluateRiskIds } from "./mockSessionDerivation";
 
 const now = () => new Date().toISOString();
 const wait = (ms = 420) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -232,7 +232,7 @@ function buildSuggestion(rackCount: number, stale = false) {
     coolingModelKw,
     coolingRedundancy: "N+1",
     pduNote: `${rackCount}台机柜建议按A/B路PDU预留，配电柜输出回路待深化。`,
-    structuralNote: "三楼长延时电池方案已纳入 Steel Structure Load加固 与运输路线复核。",
+    structuralNote: DEFAULT_STRUCTURAL_NOTE,
     stale
   };
 }
