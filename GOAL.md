@@ -27,23 +27,25 @@ scope for this phase (see Non-Goals).
 
 Definition of done (all must be true):
 
-- [ ] A fresh container reaches a GREEN gate with one command:
+- [x] A fresh container reaches a GREEN gate with one command:
       `bash scripts/setup-env.sh && npm run check` passes end-to-end, including
       the DOCX-export smoke step. (Root cause of the old red gate: missing
-      `python-docx`, now declared in `requirements.txt`.)
-- [ ] Single source of truth is in place and accurate: `GOAL.md`,
+      `python-docx`, now declared in `requirements.txt`.) — done 2026-05-31.
+- [x] Single source of truth is in place and accurate: `GOAL.md`,
       `docs/tasks.md`, `docs/decisions.md`, `docs/architecture.md` agree with the
-      running code. No doc claims a feature the code does not have.
-- [ ] The big root specs (`api_spec.md`, `rules.md`, `knowledge_base.md`,
+      running code. No doc claims a feature the code does not have. — done 2026-05-31.
+- [x] The big root specs (`api_spec.md`, `rules.md`, `knowledge_base.md`,
       `templates.md`) each carry a STATUS banner and are registered in
       `docs/specs-future/README.md`, so no agent mistakes design for reality.
-- [ ] The `AGENTS.md` naming bug is resolved (one uppercase contract file).
+      — done 2026-05-31 (physical de-RAG + relocation tracked as T-030).
+- [x] The `AGENTS.md` naming bug is resolved (one uppercase contract file).
+      — done 2026-05-31 (D-025).
 - [ ] Mock-vs-backend parity is documented: where `src/mockApi.ts` and
       `server/` intentionally differ is written down, so the demo and the real
-      product do not silently drift.
+      product do not silently drift. — NEXT (T-028).
 - [ ] Test coverage for the core deterministic logic (field extraction, risk
       triggering, export-payload assembly) exists beyond the 3 cockpit tests, so
-      regressions are caught.
+      regressions are caught. — T-029.
 
 ## Phase B — Drive the small paid pilot (AFTER Phase A is green)
 
