@@ -30,7 +30,7 @@ Phase B splits by ownership. Codex drives the **coding** tasks autonomously; the
 
 | ID    | Priority | Status | Task                                                                 | GOAL link |
 | ----- | -------- | ------ | -------------------------------------------------------------------- | --------- |
-| T-036 | P1       | Todo   | Reconcile the 5 mock/backend drift items from T-028 (see `docs/architecture.md` "Mock vs Backend Parity"): (1) backend missing budget risk, (2) override 500 on listed-but-uninitialized field, (3) risk-trigger shape, (4) `buildSuggestion` wording, (5) FSM/state derivation. Smallest change each; align both paths or document the divergence; gate green. | B reliability |
+| T-036 | P1       | Done   | Reconciled the 5 mock/backend drift items from T-028 (budget risk, override safety for listed-but-uninitialized fields, risk-trigger shape, `buildSuggestion` wording, FSM/state derivation). Added regression coverage and kept both verification gates green. | B reliability |
 | T-035 | P2       | Todo   | Install LibreOffice/`soffice` to enable automated DOCX visual QA. | B support |
 
 ### Phase B — Owner action items (resource/decision gated; Codex can only prep)

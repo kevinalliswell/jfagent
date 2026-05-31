@@ -17,7 +17,7 @@ import type {
   SuccessEnvelope
 } from "./types";
 import { searchKnowledge } from "./localVectorSearch";
-import { DEFAULT_STRUCTURAL_NOTE, evaluateRiskIds } from "./mockSessionDerivation";
+import { DEFAULT_STRUCTURAL_NOTE, evaluateRiskIds, inferStateFromFields } from "./mockSessionDerivation";
 
 const now = () => new Date().toISOString();
 const wait = (ms = 420) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -375,6 +375,7 @@ export async function postSessionChat(params: {
     const budgetRmb = budgetWan * 10000;
     const fieldPatches = [patch("budget_range_high_rmb", null, budgetRmb, "user_message", 0.9)];
     const risks = evaluateRisks(session, fieldPatches);
+    const nextState = inferStateFromFields(session.dashboard_fields, fieldPatches);
     const data: ChatResponseData = {
       ai_response: risks.some((risk) => risk.id === riskBudgetMismatch.id)
         ? "收到预算上限。这个金额可能压不住当前配置，我会在方案里准备可靠性优先和预算优先两档平替建议。"
@@ -386,8 +387,8 @@ export async function postSessionChat(params: {
       knowledge_hits: session.knowledge_hits,
       project: cloneProjectContext(session.project),
       state: {
-        fsm_state: "S3_READY_MONETIZATION",
-        export_status: "ready",
+        fsm_state: nextState.fsm_state,
+        export_status: nextState.export_status,
         calculation_status: "provisional"
       },
       suggestion: session.suggestion ? { ...session.suggestion, stale: true } : buildSuggestion(10, true),
@@ -399,6 +400,7 @@ export async function postSessionChat(params: {
   if (isRackAnswer) {
     const rackCount = text.includes("20") || text.includes("30") || text.includes("服务器") ? 5 : 10;
     const fieldPatches = [patch("rack_count", null, rackCount, "button_chip", 0.95)];
+    const nextState = inferStateFromFields(session.dashboard_fields, fieldPatches);
     const data: ChatResponseData = {
       ai_response:
         "核心规模口径已对齐。我已经按当前机柜数量重算出 UPS、电池后备和精密空调建议，现在可以开始整理交付稿。",
@@ -409,8 +411,8 @@ export async function postSessionChat(params: {
       knowledge_hits: session.knowledge_hits.length ? session.knowledge_hits : knowledgeHits,
       project: cloneProjectContext(session.project),
       state: {
-        fsm_state: "S3_READY_MONETIZATION",
-        export_status: "ready",
+        fsm_state: nextState.fsm_state,
+        export_status: nextState.export_status,
         calculation_status: "provisional"
       },
       suggestion: buildSuggestion(rackCount),
@@ -441,7 +443,8 @@ export async function postSessionChat(params: {
 
     const risks = evaluateRisks(session, patches);
     const suggestion = inferredRackCount && backupMinutes ? buildSuggestion(inferredRackCount) : null;
-    const stateReady = Boolean(inferredRackCount && hasMepSignal);
+    const nextState = inferStateFromFields(session.dashboard_fields, patches);
+    const stateReady = nextState.fsm_state === "S3_READY_MONETIZATION";
     const data: ChatResponseData = {
       ai_response: stateReady
         ? `我先按${customerName ?? "这个项目"}${projectType ? `/${projectTypeLabel(projectType)}` : ""}整理出一版可预览需求：面积${area ? `约${area}平方米` : "待确认"}，规模先按${inferredRackCount}台机柜口径，已命中${knowledgeHits.length}条内部资料。现在可以先看预览稿，也可以继续补预算。`
@@ -464,8 +467,8 @@ export async function postSessionChat(params: {
       knowledge_hits: knowledgeHits,
       project: cloneProjectContext(session.project),
       state: {
-        fsm_state: stateReady ? "S3_READY_MONETIZATION" : "S2_PROACTIVE_INQUIRIES",
-        export_status: stateReady ? "ready" : "draft",
+        fsm_state: nextState.fsm_state,
+        export_status: nextState.export_status,
         calculation_status: "provisional"
       },
       suggestion,

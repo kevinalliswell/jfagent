@@ -306,29 +306,22 @@ drift risk in the repo — the demo can quietly stop matching the product.
 | Export artifact | Canned asset, `download_url: "#mock-download"`, fixed `included_chapters` list (`:582`–`:619`). No real payload. | Real `ExportPayloadV1` + `python-docx` render; `included_chapters` derived from `chapter_plan`; willingness recorded (`:644`–`:679`). |
 | Projects / snapshot | 3 fixed seed projects; snapshot only for the one seed session (`:51`, `:289`). | Real project domain + persistence (`projectService`). |
 
-### Divergences to watch / reconcile (these are drift, keep them in sync)
+### Current parity status
 
-These are places where the two paths currently behave differently in ways that
-are **not** intentional product decisions. Fix in both, or consciously decide:
+As of T-036, there are **no known unresolved non-intentional drifts** between
+the mock and backend session paths for:
 
-1. **`riskBudgetMismatch` exists only in mock** (`src/mockApi.ts:134`, triggered
-   on budget `< 450000` in chat `:359` and override `:514`). The backend
-   `evaluateRisks` (`server/sessionService.ts:352`) only knows floor-loading and
-   elevator-height. → The demo shows a budget risk the real product never will.
-2. **Risk triggering shape differs.** Mock's `isRackAnswer` branch pushes
-   floor-loading + elevator risks unconditionally (`:390`), regardless of floor;
-   backend derives risks purely from field values. → Mock can surface risks the
-   backend would not for the same data.
-3. **`buildSuggestion.structuralNote` text differs** (`src/mockApi.ts:226` vs
-   `server/sessionService.ts:342`). Same formula, different wording.
-4. **FSM/state derivation differs.** Mock sets `fsm_state` per branch heuristic
-   (`:452`); backend derives it from field presence in `inferState` (`:361`) and
-   re-reconciles on every load. → For identical inputs the two can report
-   different stages/`export_status`.
-5. **Backend `editableFields`/`numericFields` are broader than `initialFields`**
-   (`:33`, `:44`, `:170`). Overriding a listed-but-not-initialized field (e.g.
-   `server_count`) passes the editable check then throws in `makePatch` (`:301`).
-   Mock's override accepts any `field_code`. → Latent backend 500; align the sets.
+- budget-risk triggering
+- override safety on listed editable fields
+- field-derived risk triggering
+- `buildSuggestion().structuralNote` wording
+- FSM / `export_status` derivation from dashboard fields
+
+Mock now derives risk and state semantics from dashboard fields via
+`src/mockSessionDerivation.ts`; backend keeps the same product semantics in
+`server/sessionService.ts`. Regression coverage lives in
+`tests/presalesCockpit.test.ts` (mock-side pure derivation checks) and
+`tests/backendDeterministicLogic.test.ts` (backend deterministic behavior).
 
 ### Rule for agents
 

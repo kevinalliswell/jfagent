@@ -1,4 +1,4 @@
-import type { FieldPatch, SessionSnapshot } from "./types";
+import type { FieldPatch, FsmState, SessionSnapshot } from "./types";
 
 export const DEFAULT_STRUCTURAL_NOTE = "长延时电池方案需复核楼板承重与运输路线。";
 
@@ -27,4 +27,32 @@ export function evaluateRiskIds(fields: SessionSnapshot["dashboard_fields"], pat
   if (budget > 0 && budget < 450000) riskIds.push("RULE_BUDGET_MISMATCH");
 
   return riskIds;
+}
+
+export function inferStateFromFields(
+  fields: SessionSnapshot["dashboard_fields"],
+  patches: FieldPatch[] = []
+): { fsm_state: FsmState; export_status: SessionSnapshot["export_status"] } {
+  const hasArea = Boolean(fieldValueAfterPatches(fields, "room_area_m2", patches));
+  const hasRack = Boolean(fieldValueAfterPatches(fields, "rack_count", patches));
+  const hasBackup = Boolean(fieldValueAfterPatches(fields, "ups_backup_time_minutes", patches));
+
+  if (hasArea && hasRack && hasBackup) {
+    return {
+      fsm_state: "S3_READY_MONETIZATION",
+      export_status: "ready"
+    };
+  }
+
+  if (hasArea || hasRack || hasBackup) {
+    return {
+      fsm_state: "S2_PROACTIVE_INQUIRIES",
+      export_status: "draft"
+    };
+  }
+
+  return {
+    fsm_state: "S1_CORE_EXTRACTION",
+    export_status: "draft"
+  };
 }

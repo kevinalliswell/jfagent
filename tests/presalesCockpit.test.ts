@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_STRUCTURAL_NOTE, evaluateRiskIds } from "../src/mockSessionDerivation.ts";
+import {
+  DEFAULT_STRUCTURAL_NOTE,
+  evaluateRiskIds,
+  inferStateFromFields
+} from "../src/mockSessionDerivation.ts";
 import { buildPresalesCockpit } from "../src/presalesCockpit.ts";
 import type {
   DashboardField,
@@ -194,4 +198,40 @@ test("mock 风险推导在仅补机柜数量时不应无条件触发楼层相关
 
 test("mock 默认结构说明文案应与 backend 保持一致", () => {
   assert.equal(DEFAULT_STRUCTURAL_NOTE, "长延时电池方案需复核楼板承重与运输路线。");
+});
+
+test("mock 状态推导在仅补预算时应保持核心抽取草稿态", () => {
+  const patches: FieldPatch[] = [
+    {
+      field_code: "budget_range_high_rmb",
+      old_value: null,
+      new_value: 300000,
+      source: "user_message",
+      confidence: 0.9,
+      needs_confirmation: false
+    }
+  ];
+
+  assert.deepEqual(inferStateFromFields(makeSession().dashboard_fields, patches), {
+    fsm_state: "S1_CORE_EXTRACTION",
+    export_status: "draft"
+  });
+});
+
+test("mock 状态推导在仅补机柜数量时应进入主动澄清草稿态", () => {
+  const patches: FieldPatch[] = [
+    {
+      field_code: "rack_count",
+      old_value: null,
+      new_value: 10,
+      source: "button_chip",
+      confidence: 0.95,
+      needs_confirmation: false
+    }
+  ];
+
+  assert.deepEqual(inferStateFromFields(makeSession().dashboard_fields, patches), {
+    fsm_state: "S2_PROACTIVE_INQUIRIES",
+    export_status: "draft"
+  });
 });
