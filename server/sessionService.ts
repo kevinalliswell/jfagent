@@ -179,14 +179,22 @@ function field(code: string, label: string): DashboardField {
 function initialFields() {
   return {
     customer_name: field("customer_name", "客户名称"),
+    project_name: field("project_name", "项目名称"),
     customer_industry: field("customer_industry", "客户行业"),
     project_type: field("project_type", "项目类型"),
     room_area_m2: field("room_area_m2", "机房面积"),
     room_floor: field("room_floor", "所在楼层"),
     rack_count: field("rack_count", "计划机柜数"),
+    server_count: field("server_count", "服务器数量"),
+    avg_power_per_rack_kw: field("avg_power_per_rack_kw", "单柜平均功率"),
+    redundancy_mode: field("redundancy_mode", "UPS冗余模式"),
     ups_backup_time_minutes: field("ups_backup_time_minutes", "UPS后备时间"),
+    cooling_redundancy: field("cooling_redundancy", "制冷冗余模式"),
+    budget_range_low_rmb: field("budget_range_low_rmb", "项目预算下限"),
     brand_preference: field("brand_preference", "品牌偏好"),
-    budget_range_high_rmb: field("budget_range_high_rmb", "项目预算范围")
+    budget_range_high_rmb: field("budget_range_high_rmb", "项目预算范围"),
+    delivery_city: field("delivery_city", "交付城市"),
+    expected_delivery_date: field("expected_delivery_date", "期望交付时间")
   };
 }
 
@@ -204,7 +212,10 @@ function displayForField(code: string, value: string | number | null) {
   if (code === "room_area_m2") return `${value} m2`;
   if (code === "room_floor") return `${value} 楼`;
   if (code === "rack_count") return `${value} 台`;
+  if (code === "server_count") return `${value} 台`;
+  if (code === "avg_power_per_rack_kw") return `${value} kW`;
   if (code === "ups_backup_time_minutes") return `${value} 分钟`;
+  if (code === "budget_range_low_rmb" && typeof value === "number") return `${Math.round(value / 10000)} 万`;
   if (code === "budget_range_high_rmb" && typeof value === "number") return `${Math.round(value / 10000)} 万`;
   if (code === "customer_industry" && value === "medical") return "医疗";
   if (code === "customer_industry" && value === "education") return "教育";
@@ -382,8 +393,23 @@ function signature(value: unknown) {
   return JSON.stringify(value);
 }
 
+function backfillDashboardFields(session: BackendSession) {
+  let changed = false;
+  for (const [code, nextField] of Object.entries(initialFields())) {
+    if (!session.dashboard_fields[code]) {
+      session.dashboard_fields[code] = nextField;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function reconcileDerivedSessionState(session: BackendSession) {
   let changed = false;
+
+  if (backfillDashboardFields(session)) {
+    changed = true;
+  }
 
   if (typeof session.export_payload_stale !== "boolean") {
     session.export_payload_stale = false;

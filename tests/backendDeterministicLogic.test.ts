@@ -13,7 +13,7 @@ process.on("exit", () => {
   rmSync(testRoot, { recursive: true, force: true });
 });
 
-const { postSessionChat } = await import("../server-dist/sessionService.js");
+const { postSessionChat, postSessionOverride } = await import("../server-dist/sessionService.js");
 const { buildExportPayload } = await import("../server-dist/exportPayload.js");
 
 import type { BackendProject, BackendSession, DashboardField, RiskFlag } from "../server/types.ts";
@@ -129,6 +129,18 @@ test("postSessionChat 应在低预算场景触发预算风险", async () => {
     result.data.triggered_risks.map((risk) => risk.id),
     ["RULE_BUDGET_MISMATCH"]
   );
+});
+
+test("postSessionOverride 应允许更新已声明可编辑但尚未初始化的字段", () => {
+  const result = postSessionOverride({
+    session_id: "sess_override_missing_field",
+    field_code: "server_count",
+    value: "24"
+  });
+
+  assert.equal(result.data.field_code, "server_count");
+  assert.equal(result.data.normalized_value, 24);
+  assert.equal(result.data.old_value, null);
 });
 
 test("buildExportPayload 应将绑定项目名称视为已解决字段并生成结构加固章节", () => {
