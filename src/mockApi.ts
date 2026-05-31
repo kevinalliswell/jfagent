@@ -354,7 +354,7 @@ export async function postSessionChat(params: {
   const knowledgeHits = inferKnowledgeHits(text);
 
   if (isBudget) {
-    const budgetWan = extractNumber(text, 30);
+    const budgetWan = firstNumberAfter(text, ["预算", "万", "钱"]) ?? 30;
     const budgetRmb = budgetWan * 10000;
     const risk = budgetRmb < 450000 ? [riskBudgetMismatch] : [];
     const data: ChatResponseData = {

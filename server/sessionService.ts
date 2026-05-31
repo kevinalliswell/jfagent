@@ -487,7 +487,7 @@ export async function postSessionChat(request: ChatRequest) {
   if (/国产/.test(text))
     patches.push(makePatch(session, "brand_preference", "国产优先", "user_message", 0.88));
 
-  const budgetWan = /预算|万|钱/.test(text) ? extractNumber(text, null) : null;
+  const budgetWan = /预算|万|钱/.test(text) ? firstNumberNear(text, ["预算", "万", "钱"]) : null;
   if (budgetWan)
     patches.push(makePatch(session, "budget_range_high_rmb", budgetWan * 10000, "user_message", 0.85));
 

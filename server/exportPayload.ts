@@ -293,25 +293,39 @@ function fieldSnapshot(
   session: BackendSession,
   code: string,
   label: string,
-  required: boolean
+  required: boolean,
+  fallback: Partial<Omit<ExportFieldSnapshot, "field_code" | "label" | "required_for_export">> = {}
 ): ExportFieldSnapshot {
   const existing = session.dashboard_fields[code];
+  const hasFallbackValue = fallback.value !== undefined && fallback.value !== null && fallback.value !== "";
   return {
     field_code: code,
     label: existing?.label ?? label,
-    value: existing?.value ?? null,
-    display_value: existing?.displayValue ?? "待确认",
-    source: existing?.source ?? "pending",
-    confidence: existing?.confidence ?? 0,
-    needs_confirmation: existing?.needs_confirmation ?? true,
+    value: existing?.value ?? fallback.value ?? null,
+    display_value:
+      existing?.displayValue ??
+      fallback.display_value ??
+      (hasFallbackValue ? String(fallback.value) : "待确认"),
+    source: existing?.source ?? fallback.source ?? (hasFallbackValue ? "default" : "pending"),
+    confidence: existing?.confidence ?? fallback.confidence ?? (hasFallbackValue ? 1 : 0),
+    needs_confirmation: existing?.needs_confirmation ?? fallback.needs_confirmation ?? !hasFallbackValue,
     required_for_export: required
   };
 }
 
-function buildFieldMetadata(session: BackendSession) {
+function buildFieldMetadata(
+  session: BackendSession,
+  resolvedFields: Partial<Record<(typeof fieldOrder)[number][0], string | number | null>> = {}
+) {
   const known = new Set<string>(fieldOrder.map(([code]) => code));
   const snapshots = fieldOrder.map(([code, label, required]) =>
-    fieldSnapshot(session, code, label, required)
+    fieldSnapshot(
+      session,
+      code,
+      label,
+      required,
+      code in resolvedFields ? { value: resolvedFields[code] ?? null } : {}
+    )
   );
   const extraSnapshots = Object.keys(session.dashboard_fields)
     .filter((code) => !known.has(code))
@@ -830,7 +844,9 @@ export function buildExportPayload(
   const riskFlags = buildRiskFlags(session.triggered_risks);
   const forcedDocumentInjections = buildForcedDocumentInjections(riskFlags);
   const scope = buildScope(session, calculationOutputs, riskFlags);
-  const fieldMetadata = buildFieldMetadata(session);
+  const fieldMetadata = buildFieldMetadata(session, {
+    project_name: project?.project_name ?? null
+  });
   const openItems = buildOpenItems(fieldMetadata, riskFlags);
   const calculationStatus: ExportCalculationStatus =
     !readNumber(session, "room_area_m2") && !readNumber(session, "rack_count")

@@ -45,9 +45,9 @@ Definition of done (all must be true):
       product do not silently drift. — done 2026-05-31 (T-028); see
       `docs/architecture.md` "Mock vs Backend Parity". Logged 5 drift items to
       reconcile (next agent should pick these up under the pilot phase).
-- [ ] Test coverage for the core deterministic logic (field extraction, risk
+- [x] Test coverage for the core deterministic logic (field extraction, risk
       triggering, export-payload assembly) exists beyond the 3 cockpit tests, so
-      regressions are caught. — T-029.
+      regressions are caught. — done 2026-05-31 (T-029).
 
 ## Phase B — Drive the small paid pilot (AFTER Phase A is green)
 
