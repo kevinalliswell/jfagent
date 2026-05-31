@@ -117,6 +117,20 @@ test("postSessionChat 应在高楼层长延时场景触发承重和搬运风险"
   assert.equal(result.data.state.export_status, "draft");
 });
 
+test("postSessionChat 应在低预算场景触发预算风险", async () => {
+  const result = await postSessionChat({
+    session_id: "sess_budget_risk_logic",
+    message_type: "text",
+    content: "某医院机房改造，预算30万"
+  });
+
+  assert.equal(result.data.updated_fields.budget_range_high_rmb, 300000);
+  assert.deepEqual(
+    result.data.triggered_risks.map((risk) => risk.id),
+    ["RULE_BUDGET_MISMATCH"]
+  );
+});
+
 test("buildExportPayload 应将绑定项目名称视为已解决字段并生成结构加固章节", () => {
   const session = makeSession({
     triggered_risks: [floorLoadingRisk()]

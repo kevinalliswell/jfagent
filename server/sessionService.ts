@@ -82,6 +82,15 @@ const riskElevatorHeight: RiskFlag = {
   trigger_fields: ["room_floor"]
 };
 
+const riskBudgetMismatch: RiskFlag = {
+  id: "RULE_BUDGET_MISMATCH",
+  level: "P1_HIGH",
+  text: "当前预算可能低于设备与施工综合成本安全线，建议同时准备可靠性优先和预算优先两档方案。",
+  blocking: false,
+  dismissible: false,
+  trigger_fields: ["budget_range_high_rmb"]
+};
+
 function now() {
   return new Date().toISOString();
 }
@@ -352,9 +361,11 @@ function buildSuggestionForSession(session: BackendSession) {
 function evaluateRisks(session: BackendSession) {
   const floor = Number(session.dashboard_fields.room_floor?.value ?? 0);
   const backup = Number(session.dashboard_fields.ups_backup_time_minutes?.value ?? 0);
+  const budget = Number(session.dashboard_fields.budget_range_high_rmb?.value ?? 0);
   const risks: RiskFlag[] = [];
   if (floor >= 2 && backup >= 120) risks.push(riskFloorLoading);
   if (floor >= 2) risks.push(riskElevatorHeight);
+  if (budget > 0 && budget < 450000) risks.push(riskBudgetMismatch);
   return risks;
 }
 
