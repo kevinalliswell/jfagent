@@ -1,0 +1,14 @@
+# Python runtime dependencies for local knowledge ingestion and DOCX export.
+#
+# These were previously installed only inside the Docker images, which meant a
+# fresh local / web agent environment could run `npm run check` and hit a
+# misleading 500 / "No module named 'docx'" failure at the formal-export step.
+# Declaring them here makes the quality gate reproducible everywhere.
+#
+# Install with:  python3 -m pip install -r requirements.txt
+# Or simply run: scripts/setup-env.sh
+
+python-docx
+openpyxl
+pdfplumber
+pypdf

@@ -1,5 +1,11 @@
 # Backend Expert System Rules
 
+> **STATUS: FUTURE / ASPIRATIONAL — NOT current behavior.** The real engine
+> triggers only ~2 hardcoded risks in `server/sessionService.ts`. There is no
+> multi-tier P0–P3 engine, no data-driven rules, and no remediation workflow.
+> Do not assume any rule here exists in code. See `docs/specs-future/README.md`
+> and `GOAL.md`.
+
 ## Purpose
 
 This document defines rigid backend engineering logic for a data center room construction expert system. It bridges LLM semantic flexibility with deterministic calculation engines and non-negotiable physical, safety, transport, and commercial constraints.

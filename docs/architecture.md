@@ -218,13 +218,16 @@ Spreadsheet extraction normalizes quotation/BOQ rows into retrieval text with it
 
 ### Product Specifications
 
-Location: root Markdown files.
+Location: root Markdown files. Most are FUTURE/aspirational design — read each
+file's STATUS banner and `docs/specs-future/README.md` before relying on them.
+FSM/persona/field-model/UI behavior is described across the V2 design specs in
+`docs/superpowers/specs/` and `api_spec.md`, not in a standalone `agents.md`
+(that file was removed; see D-025).
 
-- `agents.md`: FSM, persona, field model, UI behavior.
-- `rules.md`: expert rules and calculation engines.
-- `knowledge_base.md`: RAG ingestion, tagging, verification, retrieval policy.
-- `templates.md`: proposal/Word rendering rules.
-- `api_spec.md`: planned API contracts.
+- `rules.md`: expert rules and calculation engines (FUTURE).
+- `knowledge_base.md`: RAG ingestion, tagging, verification, retrieval policy (FUTURE).
+- `templates.md`: proposal/Word rendering rules (PARTIAL).
+- `api_spec.md`: API contracts (PARTIAL/FUTURE).
 
 ## Data Model
 

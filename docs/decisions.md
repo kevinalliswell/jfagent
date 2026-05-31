@@ -431,3 +431,104 @@ Consequences:
 - Legacy persisted risk text cannot leak back into the normal workstation if the rule definitions change.
 - Session reloads remain compatible across product iterations without forcing a manual database wipe.
 - This does not change the precedence model: dashboard fields remain the authority, and derived outputs follow them.
+
+## D-024: Declare Python Deps And A One-Command Env Bootstrap
+
+Status: accepted.
+
+Decision:
+
+Add `requirements.txt` (`python-docx`, `openpyxl`, `pdfplumber`, `pypdf`) and an
+idempotent `scripts/setup-env.sh` that installs Node + Python deps. Wire it into
+the Claude Code SessionStart hook (`.claude/settings.json`) and reference it from
+`AGENTS.md` as the first step of every session. The Codex environment setup
+script should also run it.
+
+Reason:
+
+Previously the Python deps lived only inside the Docker images, so a fresh local
+or web agent container ran `npm run check`, hit a 500 at the formal-export smoke
+step (`No module named 'docx'`), and misread an environment gap as a code bug.
+This is a primary source of agent drift.
+
+Consequences:
+
+- A fresh container reaches a green gate with `bash scripts/setup-env.sh && npm run check`.
+- Agents are instructed to run setup before "fixing" a red gate.
+- Docker images are unaffected (they still pip-install during build).
+
+## D-025: `AGENTS.md` Is The Single Canonical Agent Contract
+
+Status: accepted. Supersedes D-005.
+
+Decision:
+
+There is exactly one agents contract file: UPPERCASE `AGENTS.md`. The previous
+lowercase `agents.md` (which actually held collaboration rules, not the
+product/FSM spec the docs claimed) is removed.
+
+Reason:
+
+Codex auto-loads the UPPERCASE name, which never existed, so the collaboration
+rules were not being auto-loaded. On case-insensitive filesystems `agents.md`
+and `AGENTS.md` also collide. D-005's premise — that lowercase `agents.md` was
+the product/FSM specification to preserve — was inaccurate; that file always
+contained collaboration rules. Product/FSM behavior actually lives in the V2
+specs and `api_spec.md`.
+
+Consequences:
+
+- `AGENTS.md` is the single entry contract and source-of-truth map.
+- References that pointed to `agents.md` for "FSM/product behavior" are corrected
+  to point at the real specs.
+- Do not recreate a lowercase `agents.md`.
+
+## D-026: Big Root Specs Are Marked FUTURE And Registered, Not Trusted As-Is
+
+Status: accepted.
+
+Decision:
+
+`api_spec.md`, `rules.md`, `knowledge_base.md`, and `templates.md` each carry a
+STATUS banner (FUTURE / PARTIAL) at the top and are catalogued in
+`docs/specs-future/README.md` with how much is actually built. They stay
+physically at the repo root for now because `rules.md`, `knowledge_base.md`, and
+`templates.md` are also RAG ingestion seeds and Docker `COPY` inputs; moving them
+would change generated knowledge and the image build during a stabilize phase.
+
+Reason:
+
+~4900 lines of aspirational spec were being read as current contracts, sending
+agents to build features the code does not have. Banners + a registry stop that
+without destabilizing the build.
+
+Consequences:
+
+- Agents must check the banner and grep the code before relying on these specs.
+- A follow-up task (T-030) extracts the design specs out of RAG ingestion and
+  then physically moves them under `docs/specs-future/`.
+
+## D-027: Goal-Mode Operating Model Anchored By `GOAL.md`
+
+Status: accepted.
+
+Decision:
+
+Adopt a goal-mode operating model: a single `GOAL.md` north star defines the one
+active objective, its definition of done, and explicit non-goals, and outranks
+every other doc. The current phase is Stabilize & Consolidate, then drive the
+small paid pilot (D-020).
+
+Reason:
+
+The task board was all "Done" with no defined next coding objective, so a fresh
+agent invented work and drifted between competing visions (chat MVP vs V2 cockpit
+vs SaaS end-state). A single enforced objective with anti-drift rules keeps long
+autonomous runs aligned.
+
+Consequences:
+
+- `AGENTS.md` §0/§2 require reading `GOAL.md` first and forbid out-of-objective work.
+- `docs/tasks.md` maps every active task to a `GOAL.md` checkbox.
+- When the objective is met, the next phase is set by the owner, not invented by
+  the agent.

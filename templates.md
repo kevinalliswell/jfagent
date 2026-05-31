@@ -1,5 +1,10 @@
 # Technical Proposal Template Mapping
 
+> **STATUS: PARTIAL — first-pass renderer only.** A fixed chapter set is rendered
+> by `server/exportPayload.ts` + `scripts/render-export-docx.py` (`python-docx`).
+> This is not full-fidelity; visual/layout QA needs LibreOffice/`soffice`.
+> See `docs/specs-future/README.md` and `GOAL.md`.
+
 ## Purpose
 
 This document defines how the system compiles finalized JSON session data into a professional corporate Word `.docx` technical proposal for data center room construction and integration projects.

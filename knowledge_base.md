@@ -1,5 +1,10 @@
 # RAG Knowledge Base Ingestion and Taxonomy Specification
 
+> **STATUS: FUTURE / ASPIRATIONAL — NOT current behavior.** The real RAG is
+> local hashed vectors (`local-hash-v1`, 96-dim) + naive keyword + hybrid sort.
+> No BM25, no embedding model, no vector DB, no live upload→embed pipeline.
+> See `docs/specs-future/README.md` and `GOAL.md`.
+
 ## Purpose
 
 This document defines the Retrieval-Augmented Generation (RAG) knowledge base architecture for the Data Center Pre-sales AI Agent. Its purpose is to prevent hallucination, preserve verified corporate wisdom, and ensure that generated technical proposals, BOM suggestions, risk notes, and industry language are grounded in trusted source material.

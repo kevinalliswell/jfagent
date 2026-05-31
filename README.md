@@ -39,11 +39,15 @@ Not implemented yet:
 
 ## Quick Start
 
-Install dependencies:
+Install dependencies (Node + Python, in one step):
 
 ```bash
-npm install
+bash scripts/setup-env.sh
 ```
+
+This installs Node dependencies and the Python deps (`python-docx`, `openpyxl`,
+…) that the DOCX-export path and `npm run check` need. Running only `npm install`
+will leave the formal-export smoke test failing with a misleading `500`.
 
 Run the local development server:
 
@@ -139,16 +143,19 @@ docker compose -f compose.seed.yml build
 
 ```text
 .
-├── AGENTS.md                  # Codex/AI collaboration rules
+├── AGENTS.md                  # Single canonical agent contract (Codex auto-loads this)
+├── GOAL.md                    # North star: the one active objective + non-goals
 ├── README.md                  # Project entry point
-├── LOCAL_RAG.md               # Current local RAG usage notes
-├── agents.md                  # Product/FSM behavior specification
-├── api_spec.md                # Planned backend API specification
-├── knowledge_base.md          # RAG ingestion and taxonomy specification
-├── rules.md                   # Expert system and calculation rules
-├── templates.md               # Word/proposal template rules
+├── requirements.txt           # Python deps for ingestion + DOCX export
+├── LOCAL_RAG.md               # Current local RAG usage notes (IMPLEMENTED)
+├── api_spec.md                # Backend API spec (PARTIAL/FUTURE — see banner)
+├── knowledge_base.md          # RAG ingestion/taxonomy spec (FUTURE — see banner)
+├── rules.md                   # Expert system rules (FUTURE — see banner)
+├── templates.md               # Word/proposal template rules (PARTIAL — see banner)
 ├── docs/
 │   ├── architecture.md
+│   ├── specs-future/          # Registry + status of FUTURE/aspirational specs
+│   ├── GOAL_MODE_PROMPT.md     # Copy-paste prompt to start a goal-mode session
 │   ├── export-payload-schema.md
 │   ├── deployment.md
 │   ├── seed-user-trial.md
@@ -205,6 +212,8 @@ Administrators can also inspect the current runtime status, including model conf
 
 ## Development Notes
 
-Before starting a new development task, read `AGENTS.md`, `docs/tasks.md`, `docs/architecture.md`, and `docs/decisions.md`.
+Before starting a new development task, read `AGENTS.md` and `GOAL.md` first,
+then `docs/tasks.md`, `docs/architecture.md`, and `docs/decisions.md`.
 
-For current plans and priorities, see `docs/tasks.md` and `docs/roadmap.md`.
+`GOAL.md` is the single active objective and outranks every other doc. For
+current plans and priorities, see `docs/tasks.md` and `docs/roadmap.md`.

@@ -1,5 +1,11 @@
 # API Specification
 
+> **STATUS: PARTIAL / FUTURE-HEAVY — design intent, not a current contract.**
+> Routes and JSON envelopes exist in `server/http.ts`, but schema validation is
+> loose and many flows here are aspirational. Verify every contract against the
+> running code before relying on it. See `docs/specs-future/README.md` and
+> `GOAL.md`.
+
 ## Purpose
 
 This document defines the production API contract between the minimalist Frontend Workstation and the backend LLM, RAG, rules, risk, billing, and document export engines.
