@@ -197,7 +197,7 @@ Real Word rendering should consume a deterministic, frozen payload instead of re
 Consequences:
 
 - T-010 `.docx` generation should use `ExportPayloadV1` as its input contract.
-- Chapter inclusion is determined before rendering and follows `templates.md`.
+- Chapter inclusion is determined before rendering and follows `docs/specs-future/templates.md`.
 - Price fields remain yellow manual placeholders unless an approved pricing-source decision is made later.
 - The frontend may ignore `export_payload` until document preview or export QA needs it.
 
@@ -218,7 +218,7 @@ Consequences:
 - Formal approved exports now produce a downloadable `.docx` asset.
 - Free preview remains simulated until PDF preview rendering is intentionally implemented.
 - The first renderer is deterministic and table-driven, but visual PNG QA requires LibreOffice/`soffice`.
-- Future T-010 follow-up work should improve layout fidelity against `templates.md` once visual rendering is available.
+- Future T-010 follow-up work should improve layout fidelity against `docs/specs-future/templates.md` once visual rendering is available.
 
 ## D-013: Use ESLint And Prettier As The First Quality Gate
 
@@ -485,16 +485,16 @@ Consequences:
 
 ## D-026: Big Root Specs Are Marked FUTURE And Registered, Not Trusted As-Is
 
-Status: accepted.
+Status: accepted; superseded in part by D-028.
 
 Decision:
 
 `api_spec.md`, `rules.md`, `knowledge_base.md`, and `templates.md` each carry a
 STATUS banner (FUTURE / PARTIAL) at the top and are catalogued in
-`docs/specs-future/README.md` with how much is actually built. They stay
-physically at the repo root for now because `rules.md`, `knowledge_base.md`, and
-`templates.md` are also RAG ingestion seeds and Docker `COPY` inputs; moving them
-would change generated knowledge and the image build during a stabilize phase.
+`docs/specs-future/README.md` with how much is actually built. At the time of
+this decision, `rules.md`, `knowledge_base.md`, and `templates.md` temporarily
+stayed at the repo root because they were also RAG ingestion seeds and Docker
+`COPY` inputs.
 
 Reason:
 
@@ -505,8 +505,8 @@ without destabilizing the build.
 Consequences:
 
 - Agents must check the banner and grep the code before relying on these specs.
-- A follow-up task (T-030) extracts the design specs out of RAG ingestion and
-  then physically moves them under `docs/specs-future/`.
+- The later cleanup in D-028/T-030 removes the three future design specs from
+  RAG ingestion and relocates them under `docs/specs-future/`.
 
 ## D-027: Goal-Mode Operating Model Anchored By `GOAL.md`
 
@@ -532,3 +532,27 @@ Consequences:
 - `docs/tasks.md` maps every active task to a `GOAL.md` checkbox.
 - When the objective is met, the next phase is set by the owner, not invented by
   the agent.
+
+## D-028: Future Design Specs Live Under `docs/specs-future/` And Are Not RAG Seeds
+
+Status: accepted.
+
+Decision:
+
+Remove `rules.md`, `knowledge_base.md`, and `templates.md` from
+`scripts/build-knowledge-index.mjs`, stop baking them into the API image, and
+physically relocate them to `docs/specs-future/`.
+
+Reason:
+
+They are future design references, not operational knowledge. Keeping them in
+the live RAG corpus and container runtime blurred the line between "what the app
+knows" and "what the team hopes to build," which is exactly the drift Phase A is
+meant to reduce.
+
+Consequences:
+
+- `npm run kb:build` now indexes only `knowledge/` plus admin uploads.
+- The API container no longer copies the future spec files into `/app`.
+- Agents must read future specs from `docs/specs-future/`, not assume root-level
+  seed files exist.

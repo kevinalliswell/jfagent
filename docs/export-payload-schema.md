@@ -4,7 +4,7 @@
 
 `ExportPayloadV1` is the frozen JSON contract between backend session state and the Word rendering service. Its job is to collect the current session, dashboard edits, risk rules, calculation outputs, BOM placeholders, commercial disclaimers, and chapter plan into one deterministic payload.
 
-The schema follows `templates.md` and keeps the current 99 RMB flow as payment-willingness validation only.
+The schema follows `docs/specs-future/templates.md` and keeps the current 99 RMB flow as payment-willingness validation only.
 
 ## Source Of Truth
 
@@ -14,7 +14,7 @@ Current implementation:
 - First DOCX renderer: `scripts/render-export-docx.py`
 - Backend renderer orchestration: `server/exportDocument.ts`
 - API response surface: `GET /api/session/export`
-- Template rules: `templates.md`
+- Template rules: `docs/specs-future/templates.md`
 - API envelope rules: `api_spec.md`
 
 The backend builds the payload from `BackendSession`. Manual dashboard edits remain authoritative through the existing field source and confidence metadata.
@@ -72,7 +72,7 @@ interface ExportPayloadV1 {
 
 ## Chapter Plan
 
-The builder emits deterministic chapter IDs aligned with `templates.md`:
+The builder emits deterministic chapter IDs aligned with `docs/specs-future/templates.md`:
 
 | ID | Inclusion |
 | --- | --- |

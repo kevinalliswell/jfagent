@@ -700,16 +700,18 @@ export function buildChapterPlan(
     });
   };
 
-  add("COVER_AND_CATALOG", "Cover Page & Catalog", true, "templates.md always renders cover and catalog.", [
-    "customer_name",
-    "project_name",
-    "export_metadata.generated_at"
-  ]);
+  add(
+    "COVER_AND_CATALOG",
+    "Cover Page & Catalog",
+    true,
+    "docs/specs-future/templates.md always renders cover and catalog.",
+    ["customer_name", "project_name", "export_metadata.generated_at"]
+  );
   add(
     "CHAPTER_1_PROJECT_OVERVIEW",
     "Project Overview & Medical/Gov Industry Background",
     true,
-    "templates.md always renders project overview.",
+    "docs/specs-future/templates.md always renders project overview.",
     ["customer_industry", "project_type", "room_area_m2", "scope"]
   );
 
@@ -777,7 +779,7 @@ export function buildChapterPlan(
     "CHAPTER_7_COMMERCIAL_PLACEHOLDER_APPENDIX",
     "Commercial Placeholder Appendix",
     true,
-    "templates.md always renders commercial appendix.",
+    "docs/specs-future/templates.md always renders commercial appendix.",
     ["bom", "commercial", "commercial.pricing_mode"]
   );
 

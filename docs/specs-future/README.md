@@ -6,13 +6,10 @@
 > contracts the code does not have. This registry records, per spec, how much is
 > actually wired today so no one mistakes design for reality.
 >
-> The files physically remain at the repo root because three of them
-> (`rules.md`, `knowledge_base.md`, `templates.md`) are also INGESTED as
-> knowledge-base seeds by `scripts/build-knowledge-index.mjs` and COPYed by the
-> Docker image. Physically relocating them would change the generated knowledge
-> index and the image build, which conflicts with the current Stabilize phase.
-> A clean follow-up (extract design specs out of RAG ingestion, then move them
-> here) is tracked in `docs/tasks.md`.
+> These files now live under `docs/specs-future/` and are no longer ingested as
+> live knowledge-base seeds or baked into the API image. That separation is
+> intentional: future design references should not appear as runtime retrieval
+> material.
 
 Each spec file carries a STATUS banner at its top. Read the banner first.
 

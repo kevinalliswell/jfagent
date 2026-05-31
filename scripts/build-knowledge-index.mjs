@@ -12,7 +12,6 @@ const backendOutputFile = path.join(root, "server", "generatedKnowledge.ts");
 const backendRuntimeOutputFile = path.join(root, "server", "generatedKnowledge.json");
 const extractorFile = path.join(root, "scripts", "extract-document-text.py");
 const spreadsheetExtractorFile = path.join(root, "scripts", "extract-spreadsheet-text.py");
-const topLevelSeeds = ["knowledge_base.md", "rules.md", "templates.md"];
 const supportedExtensions = new Set([".md", ".txt", ".docx", ".pdf", ".xlsx", ".csv", ".tsv"]);
 const execFileAsync = promisify(execFile);
 const pythonBin = process.env.PYTHON_BIN ?? process.env.PYTHON ?? "python3";
@@ -273,15 +272,7 @@ function makeId(relativePath, index) {
 
 const knowledgeFiles = [
   ...(await walk(knowledgeDir)),
-  ...(isWithin(knowledgeDir, uploadDir) ? [] : await walk(uploadDir)),
-  ...(
-    await Promise.all(
-      topLevelSeeds.map(async (name) => {
-        const filePath = path.join(root, name);
-        return (await exists(filePath)) ? filePath : null;
-      })
-    )
-  ).filter(Boolean)
+  ...(isWithin(knowledgeDir, uploadDir) ? [] : await walk(uploadDir))
 ];
 
 const chunks = [];

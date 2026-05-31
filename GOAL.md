@@ -34,10 +34,11 @@ Definition of done (all must be true):
 - [x] Single source of truth is in place and accurate: `GOAL.md`,
       `docs/tasks.md`, `docs/decisions.md`, `docs/architecture.md` agree with the
       running code. No doc claims a feature the code does not have. — done 2026-05-31.
-- [x] The big root specs (`api_spec.md`, `rules.md`, `knowledge_base.md`,
-      `templates.md`) each carry a STATUS banner and are registered in
-      `docs/specs-future/README.md`, so no agent mistakes design for reality.
-      — done 2026-05-31 (physical de-RAG + relocation tracked as T-030).
+- [x] The big specs (`api_spec.md` plus
+      `docs/specs-future/{rules.md,knowledge_base.md,templates.md}`) each carry
+      a STATUS banner and are registered in `docs/specs-future/README.md`, so no
+      agent mistakes design for reality. — done 2026-05-31 (T-030 completed the
+      de-RAG + relocation cleanup).
 - [x] The `AGENTS.md` naming bug is resolved (one uppercase contract file).
       — done 2026-05-31 (D-025).
 - [x] Mock-vs-backend parity is documented: where `src/mockApi.ts` and
@@ -74,8 +75,9 @@ Definition of done (revisit/refine when Phase A closes):
 - The agent-centered SaaS end-state (the 2026-05-28 design spec).
 - A real embedding model / vector database (local hashed vectors stay).
 - Large refactors of `App.tsx` or backend structure unless a task is blocked.
-- Implementing the FUTURE specs (`rules.md` multi-tier engine, full
-  `api_spec.md`, full `knowledge_base.md` RAG, full `templates.md`).
+- Implementing the FUTURE specs (`docs/specs-future/rules.md` multi-tier
+  engine, full `api_spec.md`, full `docs/specs-future/knowledge_base.md` RAG,
+  full `docs/specs-future/templates.md`).
 
 ---
 

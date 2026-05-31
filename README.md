@@ -149,12 +149,12 @@ docker compose -f compose.seed.yml build
 ├── requirements.txt           # Python deps for ingestion + DOCX export
 ├── LOCAL_RAG.md               # Current local RAG usage notes (IMPLEMENTED)
 ├── api_spec.md                # Backend API spec (PARTIAL/FUTURE — see banner)
-├── knowledge_base.md          # RAG ingestion/taxonomy spec (FUTURE — see banner)
-├── rules.md                   # Expert system rules (FUTURE — see banner)
-├── templates.md               # Word/proposal template rules (PARTIAL — see banner)
 ├── docs/
 │   ├── architecture.md
 │   ├── specs-future/          # Registry + status of FUTURE/aspirational specs
+│   │   ├── knowledge_base.md
+│   │   ├── rules.md
+│   │   └── templates.md
 │   ├── GOAL_MODE_PROMPT.md     # Copy-paste prompt to start a goal-mode session
 │   ├── export-payload-schema.md
 │   ├── deployment.md

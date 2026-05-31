@@ -36,7 +36,6 @@ COPY --from=build /app/server/generatedKnowledge.json ./server/generatedKnowledg
 COPY --from=build /app/src/generatedKnowledge.ts ./src/generatedKnowledge.ts
 COPY scripts ./scripts
 COPY knowledge ./knowledge
-COPY knowledge_base.md rules.md templates.md ./
 COPY docker/api-entrypoint.sh /usr/local/bin/jfagent-api-entrypoint
 
 RUN chmod +x /usr/local/bin/jfagent-api-entrypoint

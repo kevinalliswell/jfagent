@@ -36,11 +36,7 @@ Run:
 npm run kb:build
 ```
 
-The script reads `knowledge/**/*.md`, `knowledge/**/*.txt`, `knowledge/**/*.docx`, `knowledge/**/*.pdf`, `knowledge/**/*.xlsx`, `knowledge/**/*.csv`, `knowledge/**/*.tsv`, and the existing seed files:
-
-- `knowledge_base.md`
-- `rules.md`
-- `templates.md`
+The script reads `knowledge/**/*.md`, `knowledge/**/*.txt`, `knowledge/**/*.docx`, `knowledge/**/*.pdf`, `knowledge/**/*.xlsx`, `knowledge/**/*.csv`, and `knowledge/**/*.tsv`.
 
 It generates:
 

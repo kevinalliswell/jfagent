@@ -17,7 +17,7 @@ objective. Every active task below maps to a `GOAL.md` checkbox.
 | T-027 | P0       | Done        | Single source of truth: `GOAL.md` north star, `AGENTS.md` naming fix, doc status banners, consolidated ledger. | A2/A3/A4 |
 | T-028 | P1       | Done        | Document mock-vs-backend parity in `docs/architecture.md` (intentional differences + 5 drift items to reconcile). | A5 |
 | T-029 | P1       | Done        | Add tests for core deterministic logic: field extraction, risk triggering, export-payload assembly (beyond the 3 cockpit tests). | A6 |
-| T-030 | P2       | NEXT        | Cleanup follow-up: extract the FUTURE design specs (`rules.md`, `knowledge_base.md`, `templates.md`) out of RAG ingestion in `scripts/build-knowledge-index.mjs`, then physically move them under `docs/specs-future/`. Update the script + `docker/api.Dockerfile`; re-run `kb:build`/`kb:verify`. | A3 |
+| T-030 | P2       | Done        | Cleanup follow-up: extract the FUTURE design specs (`rules.md`, `knowledge_base.md`, `templates.md`) out of RAG ingestion in `scripts/build-knowledge-index.mjs`, then physically move them under `docs/specs-future/`. Update the script + `docker/api.Dockerfile`; re-run `kb:build`/`kb:verify`. | A3 |
 
 ## Backlog — Phase B (Paid Pilot, AFTER Phase A is green)
 

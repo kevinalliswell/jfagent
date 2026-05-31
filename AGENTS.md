@@ -48,7 +48,7 @@ building SaaS infrastructure right now** — see `GOAL.md`.
 | 3 | `docs/decisions.md` | Accepted technical/product decisions (D-001…). |
 | 4 | `docs/architecture.md` | How the system is actually wired today. |
 | 5 | The **code** in `src/` and `server/` | Ground truth for current behavior. When a doc disagrees with the code, the code wins for "what is" — fix the doc. |
-| 6 | `docs/specs-future/README.md` + the big root specs | FUTURE / aspirational design. See §4. |
+| 6 | `docs/specs-future/README.md` + the future spec files | FUTURE / aspirational design. See §4. |
 
 If two documents disagree, the higher row wins. If a document disagrees with the
 running code about current behavior, the **code** is what currently exists.
@@ -67,8 +67,9 @@ running code about current behavior, the **code** is what currently exists.
   by hand. (They are gitignored.)
 - `docs/` — living project memory (architecture, decisions, tasks, roadmap,
   tech-stack, deployment) + `docs/superpowers/` historical plans/specs.
-- Root big specs (`api_spec.md`, `rules.md`, `knowledge_base.md`, `templates.md`)
-  — mostly FUTURE design. See §4.
+- Root partial spec: `api_spec.md`.
+- Future design specs live under `docs/specs-future/` (`rules.md`,
+  `knowledge_base.md`, `templates.md`). See §4.
 
 ## 4. Doc Status Legend — DO NOT mistake design for reality
 
@@ -77,9 +78,10 @@ Every large spec carries a STATUS banner at its top. Honor it:
 - **IMPLEMENTED** — reflected in code. Safe to rely on.
 - **PARTIAL** — some of it is built; verify against code before relying on it.
 - **FUTURE / ASPIRATIONAL** — a design target, NOT current behavior. Do not
-  assume these features exist. `rules.md`, `knowledge_base.md`, `templates.md`,
-  and most of `api_spec.md` are FUTURE-heavy. The real risk engine is ~2 rules;
-  the real RAG is local hashed vectors; the real export is a first-pass renderer.
+  assume these features exist. `docs/specs-future/rules.md`,
+  `docs/specs-future/knowledge_base.md`, `docs/specs-future/templates.md`, and
+  most of `api_spec.md` are FUTURE-heavy. The real risk engine is ~2 rules; the
+  real RAG is local hashed vectors; the real export is a first-pass renderer.
 
 `docs/specs-future/README.md` is the registry that records, per spec, how much is
 actually built. When in doubt, grep the code — never assume a spec is wired.

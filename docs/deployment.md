@@ -183,7 +183,6 @@ The API container runs `npm run kb:build` on startup before serving traffic. Thi
 
 - seed files baked into the image under `knowledge/`
 - uploaded files stored in `jfagent_knowledge_uploads`
-- top-level seed specs baked into the image: `knowledge_base.md`, `rules.md`, `templates.md`
 
 When an admin uploads a file, the API saves it under `/app/knowledge/uploads`, rebuilds the index, and hot-reloads `server/generatedKnowledge.json`. Frontend rebuilding is not required.
 

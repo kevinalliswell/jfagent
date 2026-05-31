@@ -30,9 +30,9 @@ HOW TO WORK (loop until the GOAL.md phase is done):
   3. Verify to GREEN: `npm run check` (and `npm run api:smoke` for backend work).
      If the gate is red, first re-run scripts/setup-env.sh and re-check — a
      missing dependency is NOT a code bug. Only debug code after that.
-  4. Treat the big root specs (api_spec.md, rules.md, knowledge_base.md,
-     templates.md) as FUTURE design — grep the code before assuming a feature
-     exists. Read each file's STATUS banner.
+  4. Treat `api_spec.md` plus the future specs under `docs/specs-future/`
+     (`rules.md`, `knowledge_base.md`, `templates.md`) as FUTURE design — grep
+     the code before assuming a feature exists. Read each file's STATUS banner.
   5. Keep mock mode (src/mockApi.ts) and backend mode (server/) aligned, or
      document the divergence.
   6. When a task is done: tick its GOAL.md checkbox, update docs/tasks.md, and

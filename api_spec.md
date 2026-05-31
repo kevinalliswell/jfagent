@@ -722,8 +722,8 @@ Export must use:
 
 - Current backend session state.
 - Manual dashboard overrides.
-- `rules.md` calculation and risk outputs.
-- `templates.md` chapter matrix.
+- `docs/specs-future/rules.md` calculation and risk outputs.
+- `docs/specs-future/templates.md` chapter matrix.
 - Yellow price placeholder policy.
 - RAG-supported LLM prose only in allowed template blocks.
 
