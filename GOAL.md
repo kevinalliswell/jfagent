@@ -54,6 +54,10 @@ Definition of done (all must be true):
 
 Target (D-020): one external paid sample customer + internal daily deep use.
 
+Most of Phase B is owner-gated (server, credentials, real documents, a real
+customer). Codex drives the coding tasks (`docs/tasks.md` T-035/T-036); the owner
+prepares resources per `docs/PHASE_B_OWNER_CHECKLIST.md`.
+
 Definition of done (revisit/refine when Phase A closes):
 
 - [ ] Backend-mode seed stack deploys and the V2 first-screen signals stay

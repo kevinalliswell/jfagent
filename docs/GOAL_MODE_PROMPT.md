@@ -66,3 +66,53 @@ verified it (paste the gate result), and what remains.
 When a phase in `GOAL.md` is complete, the owner edits `GOAL.md` to set the next
 phase. The prompt above does not change — it always points at "the current
 GOAL.md objective", so it stays correct across phases.
+
+---
+
+## Task kickoff prompts (paste after the goal-mode prompt)
+
+These narrow the agent to one task without changing the operating rules above.
+
+### T-036 — Reconcile mock vs backend drift (Phase B coding, do this first)
+
+```
+Task: T-036. Read docs/architecture.md "Mock vs Backend Parity" — the 5 logged
+drift items. Reconcile them one at a time, smallest coherent change each, in this
+order:
+  1. Backend evaluateRisks is missing the budget risk that mock has
+     (src/mockApi.ts riskBudgetMismatch). Add the equivalent to
+     server/sessionService.ts so the demo and product agree, OR, if we decide the
+     demo is wrong, remove it from mock — pick one and say why.
+  2. Backend override 500: editableFields/numericFields list field codes that
+     initialFields() never creates, so makePatch throws. Make override safe for
+     listed-but-uninitialized fields (or align the field sets).
+  3. Risk-trigger shape: mock's isRackAnswer pushes floor/elevator risks
+     unconditionally; align mock to derive risks from fields like the backend.
+  4. buildSuggestion.structuralNote wording differs between the two files —
+     unify it.
+  5. FSM/state derivation differs (mock branch heuristic vs backend inferState);
+     align mock to the field-derived logic where reasonable.
+For EACH item: change both paths or document why they intentionally differ in the
+parity section; run `npm run check` (and `npm run api:smoke`) to green; commit
+per item with a clear message. If any item turns out to be an intentional product
+difference, leave it and update the parity doc instead. Do NOT touch GOAL.md
+Non-Goals. When all 5 are resolved, tick nothing in GOAL.md (this is a Phase B
+reliability task) but mark T-036 Done in docs/tasks.md and report.
+```
+
+### Deploy preflight (Codex prep for owner-gated T-031)
+
+```
+Task: pre-deploy readiness only — do NOT deploy (no server/creds yet).
+Read docs/deployment.md and docs/vps-codex-deployment-handoff.md. Then:
+  - verify `docker compose -f compose.seed.yml build` succeeds locally (or report
+    exactly what is missing),
+  - sanity-check .env.caddy.example / .env.api.example against what
+    compose.seed.yml actually consumes,
+  - produce/refresh a single copy-paste deploy runbook in docs/deployment.md if
+    anything is stale.
+Report a checklist of what the owner still must supply (server, domain, GHCR
+token, Caddy hashes, OpenAI creds). Stop there — deployment itself is an owner
+action item (T-031).
+```
+

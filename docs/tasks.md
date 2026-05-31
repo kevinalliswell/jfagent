@@ -21,13 +21,26 @@ objective. Every active task below maps to a `GOAL.md` checkbox.
 
 ## Backlog — Phase B (Paid Pilot, AFTER Phase A is green)
 
+Phase B splits by ownership. Codex drives the **coding** tasks autonomously; the
+**owner action items** are gated on real-world resources Codex cannot provide
+(server, credentials, internal documents, a real customer). See
+`docs/PHASE_B_OWNER_CHECKLIST.md` for what the owner must prepare.
+
+### Phase B — Codex coding tasks (agent-doable now)
+
 | ID    | Priority | Status | Task                                                                 | GOAL link |
 | ----- | -------- | ------ | -------------------------------------------------------------------- | --------- |
-| T-031 | P0       | Todo   | Deploy backend-mode seed stack; confirm V2 first-screen signals (completeness, risk, evidence, delivery, `real_llm` vs `fallback`) stay reliable. | B1 |
-| T-032 | P0       | Todo   | Upload 10–20 cleaned internal seed docs via `?admin=1` for real citation backing. | B2 |
-| T-033 | P0       | Todo   | Run 3–5 real project descriptions through cockpit→chat→export; write a read on friction reduction. | B3 |
-| T-034 | P0       | Todo   | Produce one external sample requirement sheet end-to-end, judged customer-ready. | B4 |
-| T-035 | P2       | Todo   | Install LibreOffice/`soffice` to enable automated DOCX visual QA. | B (support) |
+| T-036 | P1       | Todo   | Reconcile the 5 mock/backend drift items from T-028 (see `docs/architecture.md` "Mock vs Backend Parity"): (1) backend missing budget risk, (2) override 500 on listed-but-uninitialized field, (3) risk-trigger shape, (4) `buildSuggestion` wording, (5) FSM/state derivation. Smallest change each; align both paths or document the divergence; gate green. | B reliability |
+| T-035 | P2       | Todo   | Install LibreOffice/`soffice` to enable automated DOCX visual QA. | B support |
+
+### Phase B — Owner action items (resource/decision gated; Codex can only prep)
+
+| ID    | Priority | Owner does | Codex can prep |
+| ----- | -------- | ---------- | -------------- |
+| T-031 | P0       | Deploy seed stack: provide server/domain/DNS, GHCR read token, Caddy auth hashes, optional OpenAI creds; decide how images get published (merge to `main` triggers the GHCR build). | A pre-deploy runbook/preflight; verify `compose.seed.yml` builds; review `.env` templates. See `docs/deployment.md` + `docs/vps-codex-deployment-handoff.md`. |
+| T-032 | P0       | Supply 10–20 cleaned/desensitized internal docs; upload via `?admin=1`. | Verify ingestion formats + that uploads appear in `knowledge_hits`. |
+| T-033 | P0       | Provide 3–5 real project descriptions; judge the cockpit→chat→export flow. | Capture a friction-reduction template/checklist to fill in. |
+| T-034 | P0       | Provide a real external sample customer; judge the output customer-ready. | Help refine the export/`templates.md` mapping if the sheet needs changes. |
 
 ## Completed (history — condensed)
 
