@@ -46,19 +46,21 @@ PORT=3100 npm run api:start
 - `GET /api/session/export`
 - `GET /api/admin/knowledge/status`
 - `POST /api/admin/knowledge/upload`
+- `GET /api/admin/runtime/status`
 
 The implementation is intentionally lightweight:
 
 - Node.js built-in HTTP server.
 - TypeScript types local to `server/`.
-- In-memory session store.
-- In-memory project store and project/session binding.
+- SQLite-backed backend session store with in-process caches.
+- SQLite-backed project store and project/session binding.
 - Mock extraction/risk/export behavior that follows `api_spec.md` envelopes.
 - `ExportPayloadV1` builder for Word rendering input.
 - First-pass DOCX renderer using `scripts/render-export-docx.py`.
-- In-memory rendered asset registry served by `GET /api/assets/{asset_id}/download`.
+- Persisted rendered asset registry served by `GET /api/assets/{asset_id}/download`.
 - Admin-only seed-trial knowledge upload when protected by Nginx Basic Auth.
 - Runtime retrieval index reload from `server/generatedKnowledge.json`.
+- Optional OpenAI-compatible LLM path with runtime visibility for real-model versus fallback mode.
 
 ## Current Boundary
 

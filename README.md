@@ -19,6 +19,7 @@ Implemented:
 - Admin-only seed-trial knowledge upload through `?admin=1` in backend mode.
 - Docker Compose seed deployment with private GHCR images and Caddy HTTPS/Basic Auth.
 - Optional OpenAI-compatible backend agent for real pre-sales responses and low-precedence field candidates.
+- Backend/frontend runtime visibility for whether the latest answer used the real LLM path or deterministic fallback.
 - Local hashed vectors for knowledge chunks; no external embedding API.
 - BOQ/quotation summary panel in the dashboard.
 - Switchable frontend API client: default local mock mode, optional backend API mode.
@@ -30,7 +31,6 @@ Implemented:
 
 Not implemented yet:
 
-- Production backend service with persistence.
 - Production-grade LLM orchestration, audit, and model governance.
 - Embedding/vector database retrieval.
 - Automated visual DOCX render QA without LibreOffice/`soffice`.
@@ -200,6 +200,8 @@ In backend mode, administrators can also open:
 ```
 
 The hidden admin upload panel saves files under `knowledge/uploads/`, rebuilds the index, and hot-reloads backend retrieval.
+
+Administrators can also inspect the current runtime status, including model config and data-path wiring, through the backend admin surface.
 
 ## Development Notes
 

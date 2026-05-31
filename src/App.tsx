@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  Bot,
   Building2,
   Check,
   ChevronRight,
@@ -11,8 +10,6 @@ import {
   FileText,
   FolderUp,
   Loader2,
-  MessageCircle,
-  Mic,
   Plus,
   RefreshCw,
   Send,
@@ -25,6 +22,7 @@ import {
   createProject,
   displayForField,
   getProjectDetail,
+  getRuntimeStatus,
   getSessionSnapshot,
   getSessionExport,
   getKnowledgeStatus,
@@ -36,7 +34,11 @@ import {
   uploadKnowledgeFile,
   sourceLabel
 } from "./sessionApi";
+import { buildPresalesCockpit, projectStageClass, projectStageLabel } from "./presalesCockpit";
+import type { PresalesCockpit } from "./presalesCockpit";
 import type {
+  AdminRuntimeStatus,
+  AgentRuntimeSummary,
   ChatMessage,
   DashboardField,
   ExportAsset,
@@ -45,15 +47,14 @@ import type {
   PaymentRequiredError,
   ProjectContext,
   ProjectDetail,
-  ProjectStage,
   ProjectSummary,
   RiskFlag,
   SessionSnapshotData,
   SessionSnapshot
 } from "./types";
 
-const demoPrompt = "某学校老机房改造，30平，UPS、电池、精密空调和动环，柜子还没定";
 const maxKnowledgeUploadBytes = 20 * 1024 * 1024;
+const lastProjectStorageKey = "jfagent:last-project-id";
 
 function cloneDashboardFields(fields: SessionSnapshot["dashboard_fields"]) {
   return Object.fromEntries(Object.entries(fields).map(([code, field]) => [code, { ...field }]));
@@ -78,16 +79,24 @@ function cloneProjectContext(project: ProjectContext | null) {
   return project ? { ...project } : null;
 }
 
-function projectStageLabel(stage: ProjectStage) {
-  if (stage === "solution_ready") return "方案就绪";
-  if (stage === "clarifying") return "待澄清";
-  return "摸底中";
+function cloneAgentRuntime(agentRuntime: AgentRuntimeSummary | null) {
+  return agentRuntime ? { ...agentRuntime } : null;
 }
 
-function projectStageClass(stage: ProjectStage) {
-  if (stage === "solution_ready") return "stage-ready";
-  if (stage === "clarifying") return "stage-clarifying";
-  return "stage-intake";
+function readLastProjectId() {
+  try {
+    return window.localStorage.getItem(lastProjectStorageKey);
+  } catch {
+    return null;
+  }
+}
+
+function writeLastProjectId(projectId: string) {
+  try {
+    window.localStorage.setItem(lastProjectStorageKey, projectId);
+  } catch {
+    // Ignore storage failures in private or restricted environments.
+  }
 }
 
 function makeSessionId() {
@@ -97,10 +106,20 @@ function makeSessionId() {
   return `sess_${Date.now().toString(16)}`;
 }
 
+const quickStartPresets = [
+  "某医院机房改造，50平，3楼，UPS后备2小时，10个机柜，预算30万",
+  "某学校新建中心机房，80平，计划12个机柜，要求国产优先",
+  "园区机房扩容，现有机房利旧，新增6个机柜，月底前要出方案"
+];
+
 function buildQuickRepliesForSession(project: ProjectContext | null, ready = false) {
   if (!project) return [];
-  if (ready) return ["生成Word需求表", "补充项目预算", "计划放置 10 个标准机柜"];
+  if (ready) return ["整理交付稿", "补充项目预算", "计划放置 10 个标准机柜"];
   return ["某医院老机房改造，50平，UPS后备2小时", "计划放置 10 个标准机柜", "预算 30 万以内"];
+}
+
+function isInternalProjectName(name: string) {
+  return /持久化|测试|demo|sample|示例/i.test(name);
 }
 
 function createDraftSession(project: ProjectContext | null): SessionSnapshot {
@@ -117,8 +136,8 @@ function createDraftSession(project: ProjectContext | null): SessionSnapshot {
       makeMessage(
         "ai",
         project
-          ? `已切换到 ${project.project_name}。先把客户原话、现场条件或预算线索发给我，我会把本轮对话直接绑定到这个项目。`
-          : "先在左侧创建或选择一个项目，再把客户线索发给我。我会把后续聊天、看板和导出都挂到这个项目上。"
+          ? `已切换到 ${project.project_name}。先把客户原话、现场条件或预算线索发给我，我会继续补齐这份项目档案。`
+          : "先在左侧创建或选择一个项目，再把客户线索发给我。后续沟通记录、需求字段和交付整理都会归到这个项目。"
       )
     ],
     quick_replies: buildQuickRepliesForSession(project),
@@ -127,7 +146,8 @@ function createDraftSession(project: ProjectContext | null): SessionSnapshot {
     suggestion: null,
     knowledge_hits: sessionApiMode === "mock" ? cloneKnowledgeHits(initialSession.knowledge_hits) : [],
     export_asset: null,
-    project: cloneProjectContext(project)
+    project: cloneProjectContext(project),
+    agent_runtime: sessionApiMode === "mock" ? cloneAgentRuntime(initialSession.agent_runtime) : null
   };
 }
 
@@ -144,8 +164,8 @@ function hydrateSessionFromSnapshot(snapshot: SessionSnapshotData): SessionSnaps
       makeMessage(
         "ai",
         snapshot.project
-          ? `已载入 ${snapshot.project.project_name} 的项目快照。你可以继续补充需求，或直接检查右侧看板和导出状态。`
-          : "已载入项目快照。你可以继续补充需求，或直接检查右侧看板和导出状态。"
+          ? `已载入 ${snapshot.project.project_name} 的项目资料。你可以继续补充需求，或直接开始整理方案与交付内容。`
+          : "已载入项目资料。你可以继续补充需求，或直接开始整理方案与交付内容。"
       )
     ],
     quick_replies: buildQuickRepliesForSession(snapshot.project, snapshot.session.export_status === "ready"),
@@ -154,7 +174,8 @@ function hydrateSessionFromSnapshot(snapshot: SessionSnapshotData): SessionSnaps
     suggestion: cloneSuggestion(snapshot.session.suggestion),
     knowledge_hits: cloneKnowledgeHits(snapshot.session.knowledge_hits),
     export_asset: null,
-    project: cloneProjectContext(snapshot.project)
+    project: cloneProjectContext(snapshot.project),
+    agent_runtime: cloneAgentRuntime(snapshot.session.agent_runtime)
   };
 }
 
@@ -341,6 +362,7 @@ export default function App() {
   const [isProjectDetailLoading, setIsProjectDetailLoading] = useState(false);
   const isAdminMode = useMemo(() => new URLSearchParams(window.location.search).get("admin") === "1", []);
   const [knowledgeStatus, setKnowledgeStatus] = useState<KnowledgeIndexStatus | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<AdminRuntimeStatus | null>(null);
   const [knowledgeUploadNotice, setKnowledgeUploadNotice] = useState<string | null>(null);
   const [isKnowledgeUploading, setIsKnowledgeUploading] = useState(false);
 
@@ -366,6 +388,7 @@ export default function App() {
     setPaymentRequest(null);
     setEditingField(null);
     setInput("");
+    writeLastProjectId(project.project_id);
 
     try {
       if (project.primary_session_id) {
@@ -396,18 +419,13 @@ export default function App() {
     }
   }
 
-  async function refreshProjects(autoSelectFirst = false, silent = false) {
+  async function refreshProjects(restoreLastSelected = false, silent = false) {
     if (!silent) setIsProjectsLoading(true);
 
     try {
       const nextProjects = await listProjects();
       setProjects(nextProjects);
       setProjectsNotice(null);
-
-      if (autoSelectFirst && !latestSession.current.project && nextProjects[0]) {
-        await switchProject(nextProjects[0], true);
-        return;
-      }
 
       const currentProjectId = latestSession.current.project?.project_id;
       if (currentProjectId) {
@@ -422,6 +440,17 @@ export default function App() {
             }
           }));
         }
+        return;
+      }
+
+      if (restoreLastSelected) {
+        const lastProjectId = readLastProjectId();
+        const matched = lastProjectId
+          ? nextProjects.find((project) => project.project_id === lastProjectId)
+          : null;
+        if (matched) {
+          await switchProject(matched, true);
+        }
       }
     } catch (error) {
       setProjectsNotice(error instanceof Error ? error.message : "项目列表读取失败");
@@ -433,6 +462,7 @@ export default function App() {
   useEffect(() => {
     if (!isAdminMode) return;
     void refreshKnowledgeStatus();
+    void refreshRuntimeStatus();
   }, [isAdminMode]);
 
   useEffect(() => {
@@ -465,19 +495,9 @@ export default function App() {
     };
   }, [session.project?.project_id, session.state_version]);
 
-  const orderedFields = useMemo(
-    () => [
-      session.dashboard_fields.customer_name,
-      session.dashboard_fields.customer_industry,
-      session.dashboard_fields.project_type,
-      session.dashboard_fields.room_area_m2,
-      session.dashboard_fields.room_floor,
-      session.dashboard_fields.rack_count,
-      session.dashboard_fields.ups_backup_time_minutes,
-      session.dashboard_fields.brand_preference,
-      session.dashboard_fields.budget_range_high_rmb
-    ],
-    [session.dashboard_fields]
+  const cockpit = useMemo(
+    () => buildPresalesCockpit(session, activeProjectDetail),
+    [session, activeProjectDetail]
   );
 
   async function sendChat(content: string, source: "text" | "voice" | "file" = "text") {
@@ -533,7 +553,8 @@ export default function App() {
             ? result.data.knowledge_hits
             : current.knowledge_hits,
           suggestion: result.data.suggestion ?? current.suggestion,
-          project: result.data.project ?? current.project
+          project: result.data.project ?? current.project,
+          agent_runtime: cloneAgentRuntime(result.data.agent_runtime)
         };
       });
       void refreshProjects(false, true);
@@ -564,12 +585,56 @@ export default function App() {
     }
   }
 
+  async function handleQuickStart() {
+    if (isCreatingProject || isSending) return;
+
+    setIsCreatingProject(true);
+    try {
+      const project = await createProject(projectDraftName);
+      const projectContext = {
+        project_id: project.project_id,
+        project_name: project.project_name,
+        stage: project.stage
+      } satisfies ProjectContext;
+      const nextSession = createDraftSession(projectContext);
+
+      setProjectDraftName("");
+      setProjects((current) => [
+        project,
+        ...current.filter((item) => item.project_id !== project.project_id)
+      ]);
+      writeLastProjectId(project.project_id);
+      latestSession.current = nextSession;
+      setSession(nextSession);
+      setPaymentRequest(null);
+      setEditingField(null);
+      announceProjectNotice(`已创建并打开 ${project.project_name}`);
+
+      if (input.trim()) {
+        await sendChat(input);
+      }
+    } catch (error) {
+      announceProjectNotice(error instanceof Error ? error.message : "项目创建失败");
+    } finally {
+      setIsCreatingProject(false);
+    }
+  }
+
   async function refreshKnowledgeStatus() {
     try {
       const result = await getKnowledgeStatus();
       setKnowledgeStatus(result.data);
     } catch (error) {
       setKnowledgeUploadNotice(error instanceof Error ? error.message : "知识库状态读取失败");
+    }
+  }
+
+  async function refreshRuntimeStatus() {
+    try {
+      const result = await getRuntimeStatus();
+      setRuntimeStatus(result.data);
+    } catch (error) {
+      setKnowledgeUploadNotice(error instanceof Error ? error.message : "运行状态读取失败");
     }
   }
 
@@ -602,14 +667,14 @@ export default function App() {
   async function commitOverride(field: DashboardField) {
     if (!editingField) return;
     if (sessionApiMode === "backend" && !isProjectSessionBound(latestSession.current)) {
-      announceSyncNotice("请先发送一条项目线索，系统完成项目绑定后再做看板修正。");
+      announceSyncNotice("请先发送一条客户线索，让项目先形成第一版资料，再修改需求字段。");
       setEditingField(null);
       return;
     }
 
     const value = editingValue.trim();
     setEditingField(null);
-    setSyncNotice("正在同步手动修正...");
+    setSyncNotice("正在保存手动修改...");
 
     try {
       const result = await postSessionOverride({
@@ -635,27 +700,27 @@ export default function App() {
           dashboard_fields: fields,
           triggered_risks: uniqueRisks(result.data.triggered_risks),
           suggestion: result.data.suggestion,
-          messages: [...current.messages, makeMessage("ai", result.data.ai_notice)]
+          messages: [
+            ...current.messages,
+            makeMessage("ai", `已更新「${field.label}」，后续方案建议和交付整理会按这个口径继续。`)
+          ]
         };
       });
 
-      announceSyncNotice("已同步到导出上下文");
+      announceSyncNotice("已同步到项目资料");
       void refreshProjects(false, true);
     } catch (error) {
       announceSyncNotice(error instanceof Error ? error.message : "手动修正同步失败");
     }
   }
 
-  async function startExport(
-    approved = false,
-    paymentMode: "simulate_99_rmb" | "free_preview" = "simulate_99_rmb"
-  ) {
+  async function startExport(approved = false, paymentMode?: "credit" | "free_preview") {
     if (sessionApiMode === "backend" && !latestSession.current.project) {
       announceProjectNotice("请先创建或选择项目，再生成导出文件。");
       return;
     }
     if (sessionApiMode === "backend" && !isProjectSessionBound(latestSession.current)) {
-      announceSyncNotice("请先发送一条项目线索，系统会先把导出绑定到当前项目。");
+      announceSyncNotice("请先发送一条项目线索，系统会先整理出项目资料，再继续生成交付文件。");
       return;
     }
 
@@ -683,8 +748,8 @@ export default function App() {
           makeMessage(
             "ai",
             result.data.export_status === "preview_ready"
-              ? "免费预览版已生成，正式版仍会保留99元支付意愿验证。"
-              : "正式版Word技术方案已模拟生成，章节、风险提示和价格占位符都已通过导出校验。"
+              ? "预览稿已生成，可以先核对需求、风险和章节结构。"
+              : "正式交付稿已生成，章节、风险提示和价格占位已经整理完成。"
           )
         ]
       }));
@@ -718,6 +783,7 @@ export default function App() {
         isSwitchingProject={isSwitchingProject}
         isAdminMode={isAdminMode}
         knowledgeStatus={knowledgeStatus}
+        runtimeStatus={runtimeStatus}
         knowledgeUploadNotice={knowledgeUploadNotice}
         isKnowledgeUploading={isKnowledgeUploading}
         onProjectDraftNameChange={setProjectDraftName}
@@ -726,27 +792,28 @@ export default function App() {
         onRefreshProjects={() => void refreshProjects(false)}
         onKnowledgeUpload={uploadKnowledge}
         onRefreshKnowledgeStatus={refreshKnowledgeStatus}
+        onRefreshRuntimeStatus={refreshRuntimeStatus}
       />
-      <section className="workbench">
-        <ChatPanel
+      <section className="workstation-shell">
+        <CockpitPanel
           session={session}
-          projectDetail={activeProjectDetail}
+          cockpit={cockpit}
           isProjectDetailLoading={isProjectDetailLoading}
+          projects={projects}
+          projectDraftName={projectDraftName}
+          isSwitchingProject={isSwitchingProject}
           input={input}
           isSending={isSending}
+          isCreatingProject={isCreatingProject}
+          onProjectDraftNameChange={setProjectDraftName}
           onInput={setInput}
           onSend={() => sendChat(input)}
           onQuickReply={sendChat}
-        />
-        <DashboardPanel
-          session={session}
-          projectDetail={activeProjectDetail}
-          isProjectDetailLoading={isProjectDetailLoading}
-          fields={orderedFields}
+          onQuickStart={handleQuickStart}
+          onSelectProject={switchProject}
           editingField={editingField}
           editingValue={editingValue}
           syncNotice={syncNotice}
-          isExporting={isExporting}
           onStartEdit={(field) => {
             setEditingField(field.code);
             setEditingValue(field.value === null ? "" : String(field.value));
@@ -754,11 +821,19 @@ export default function App() {
           onEditValue={setEditingValue}
           onCommitEdit={commitOverride}
           onCancelEdit={() => setEditingField(null)}
+        />
+        <OperationsPanel
+          session={session}
+          cockpit={cockpit}
+          projects={projects}
+          projectDetail={activeProjectDetail}
+          isProjectDetailLoading={isProjectDetailLoading}
+          isExporting={isExporting}
           onExport={() => startExport(false)}
         />
       </section>
       {paymentRequest && (
-        <ExportPaymentModal
+        <ExportReviewModal
           request={paymentRequest}
           isExporting={isExporting}
           onClose={() => setPaymentRequest(null)}
@@ -781,6 +856,7 @@ function Sidebar({
   isSwitchingProject,
   isAdminMode,
   knowledgeStatus,
+  runtimeStatus,
   knowledgeUploadNotice,
   isKnowledgeUploading,
   onProjectDraftNameChange,
@@ -788,7 +864,8 @@ function Sidebar({
   onSelectProject,
   onRefreshProjects,
   onKnowledgeUpload,
-  onRefreshKnowledgeStatus
+  onRefreshKnowledgeStatus,
+  onRefreshRuntimeStatus
 }: {
   onReset: () => void;
   projects: ProjectSummary[];
@@ -800,6 +877,7 @@ function Sidebar({
   isSwitchingProject: boolean;
   isAdminMode: boolean;
   knowledgeStatus: KnowledgeIndexStatus | null;
+  runtimeStatus: AdminRuntimeStatus | null;
   knowledgeUploadNotice: string | null;
   isKnowledgeUploading: boolean;
   onProjectDraftNameChange: (value: string) => void;
@@ -808,7 +886,12 @@ function Sidebar({
   onRefreshProjects: () => void;
   onKnowledgeUpload: (file: File | null) => void;
   onRefreshKnowledgeStatus: () => void;
+  onRefreshRuntimeStatus: () => void;
 }) {
+  const visibleProjects = isAdminMode
+    ? projects
+    : projects.filter((project) => !isInternalProjectName(project.project_name));
+
   return (
     <aside className="sidebar">
       <div className="brand-block">
@@ -816,14 +899,14 @@ function Sidebar({
           <ServerCog size={24} />
         </div>
         <div>
-          <h1>机房建设售前智能体</h1>
-          <p>集成商内测工作台</p>
+          <h1>机房售前工作台</h1>
+          <p>需求整理 · 风险核查 · 方案协同</p>
         </div>
       </div>
 
       <button className="primary-action" onClick={onReset}>
         <Plus size={18} />
-        新建商机摸底
+        新建项目
       </button>
 
       <section className="sidebar-section project-section">
@@ -863,13 +946,13 @@ function Sidebar({
         {projectsNotice && <p className="sidebar-note">{projectsNotice}</p>}
 
         <div className="project-list">
-          {projects.length === 0 ? (
+          {visibleProjects.length === 0 ? (
             <div className="project-empty">
               <Building2 size={16} />
               <span>{isProjectsLoading ? "正在读取项目列表..." : "还没有项目，先创建一个再开始摸底。"}</span>
             </div>
           ) : (
-            projects.map((project) => (
+            visibleProjects.map((project) => (
               <button
                 key={project.project_id}
                 className={`project-item ${activeProjectId === project.project_id ? "active" : ""}`}
@@ -881,7 +964,7 @@ function Sidebar({
                   <strong>{project.project_name}</strong>
                   <small>
                     {projectStageLabel(project.stage)}
-                    {project.primary_session_id ? " · 已绑定会话" : " · 待首轮沟通"}
+                    {project.primary_session_id ? " · 进行中" : " · 待整理"}
                   </small>
                 </span>
               </button>
@@ -893,16 +976,18 @@ function Sidebar({
       {isAdminMode && (
         <AdminKnowledgeUpload
           status={knowledgeStatus}
+          runtimeStatus={runtimeStatus}
           notice={knowledgeUploadNotice}
           isUploading={isKnowledgeUploading}
           onUpload={onKnowledgeUpload}
           onRefresh={onRefreshKnowledgeStatus}
+          onRefreshRuntime={onRefreshRuntimeStatus}
         />
       )}
 
       <div className="sidebar-foot">
         <ShieldAlert size={16} />
-        <span>先选项目再开聊，后续看板、会话快照和导出都会按项目归档。</span>
+        <span>项目中心</span>
       </div>
     </aside>
   );
@@ -910,16 +995,20 @@ function Sidebar({
 
 function AdminKnowledgeUpload({
   status,
+  runtimeStatus,
   notice,
   isUploading,
   onUpload,
-  onRefresh
+  onRefresh,
+  onRefreshRuntime
 }: {
   status: KnowledgeIndexStatus | null;
+  runtimeStatus: AdminRuntimeStatus | null;
   notice: string | null;
   isUploading: boolean;
   onUpload: (file: File | null) => void;
   onRefresh: () => void;
+  onRefreshRuntime: () => void;
 }) {
   return (
     <section className="admin-upload">
@@ -944,6 +1033,10 @@ function AdminKnowledgeUpload({
         <RefreshCw size={14} />
         刷新状态
       </button>
+      <button className="admin-refresh" type="button" onClick={onRefreshRuntime} disabled={isUploading}>
+        <RefreshCw size={14} />
+        刷新模型状态
+      </button>
       <div className="admin-status">
         <span>{status ? `${status.index.chunk_count} 个片段` : "状态待读取"}</span>
         <small>
@@ -952,15 +1045,435 @@ function AdminKnowledgeUpload({
             : "支持 md/txt/docx/pdf/xlsx/csv/tsv"}
         </small>
       </div>
+      <div className="admin-status">
+        <span>
+          {runtimeStatus
+            ? `${runtimeStatus.agent.llm_configured ? "已连接模型服务" : "未连接模型服务"}`
+            : "模型状态待读取"}
+        </span>
+        <small>
+          {runtimeStatus
+            ? `${runtimeStatus.agent.model} · ${runtimeStatus.agent.base_url}`
+            : "读取后可确认当前模型配置"}
+        </small>
+        {runtimeStatus && <small>数据目录：{runtimeStatus.storage.database_path}</small>}
+      </div>
       {notice && <p>{notice}</p>}
     </section>
   );
 }
 
-function ChatPanel({
+function CockpitPanel({
   session,
-  projectDetail,
+  cockpit,
   isProjectDetailLoading,
+  projects,
+  projectDraftName,
+  isSwitchingProject,
+  input,
+  isSending,
+  isCreatingProject,
+  onProjectDraftNameChange,
+  onInput,
+  onSend,
+  onQuickReply,
+  onQuickStart,
+  onSelectProject,
+  editingField,
+  editingValue,
+  syncNotice,
+  onStartEdit,
+  onEditValue,
+  onCommitEdit,
+  onCancelEdit
+}: {
+  session: SessionSnapshot;
+  cockpit: PresalesCockpit;
+  isProjectDetailLoading: boolean;
+  projects: ProjectSummary[];
+  projectDraftName: string;
+  isSwitchingProject: boolean;
+  input: string;
+  isSending: boolean;
+  isCreatingProject: boolean;
+  onProjectDraftNameChange: (value: string) => void;
+  onInput: (value: string) => void;
+  onSend: () => void;
+  onQuickReply: (value: string) => void;
+  onQuickStart: () => void | Promise<void>;
+  onSelectProject: (project: ProjectSummary) => void | Promise<void>;
+  editingField: string | null;
+  editingValue: string;
+  syncNotice: string | null;
+  onStartEdit: (field: DashboardField) => void;
+  onEditValue: (value: string) => void;
+  onCommitEdit: (field: DashboardField) => void;
+  onCancelEdit: () => void;
+}) {
+  const highlightFields = snapshotHighlightFields(session.dashboard_fields);
+  if (!cockpit.hasProject) {
+    return (
+      <section className="cockpit-panel">
+        <div className="cockpit-scroll">
+          <EmptyProjectState
+            projects={projects}
+            isSwitchingProject={isSwitchingProject}
+            projectDraftName={projectDraftName}
+            input={input}
+            isCreatingProject={isCreatingProject}
+            isSending={isSending}
+            onProjectDraftNameChange={onProjectDraftNameChange}
+            onInput={onInput}
+            onQuickStart={onQuickStart}
+            onSelectProject={onSelectProject}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="cockpit-panel">
+      <div className="cockpit-scroll">
+        <section className="hero-card">
+          <div className="hero-copy">
+            <span className="hero-kicker">当前项目</span>
+            <div className="hero-title-row">
+              <h2>{cockpit.projectName}</h2>
+              <span className={`stage-chip ${cockpit.stageClass}`}>{cockpit.stageLabel}</span>
+            </div>
+            <p>{cockpit.attentionLine}</p>
+          </div>
+          <div className={`hero-readiness tone-${cockpit.deliverable.tone}`}>
+            <span className={`readiness-chip tone-${cockpit.deliverable.tone}`}>
+              {cockpit.deliverable.label}
+            </span>
+            <strong>{cockpit.deliverable.readinessScore}%</strong>
+            <small>交付准备度</small>
+          </div>
+          <div className="hero-next-action">
+            <span className="section-label">建议下一步</span>
+            <strong>{cockpit.nextAction}</strong>
+            <p>{cockpit.deliverable.note}</p>
+          </div>
+          <div className="hero-metrics">
+            <Metric label="已采集字段" value={`${cockpit.capturedFieldCount}/9`} />
+            <Metric label="待确认" value={`${cockpit.pendingFieldCount} 项`} />
+            <Metric label="阻塞风险" value={`${cockpit.riskSummary.blockingCount} 条`} />
+            <Metric label="资料依据" value={`${cockpit.evidenceSummary.totalHitCount} 条`} />
+          </div>
+        </section>
+
+        <div className="cockpit-grid">
+          <CockpitCompletenessCard cockpit={cockpit} />
+          <DeliverableStatusCard cockpit={cockpit} asset={session.export_asset} />
+          <RiskCard risks={session.triggered_risks} />
+          <EvidenceOverviewCard cockpit={cockpit} hits={session.knowledge_hits} />
+        </div>
+
+        <div className="project-workbench-shell">
+          <div className="project-workbench-main">
+            <RequirementWorkbenchCard
+              cockpit={cockpit}
+              editingField={editingField}
+              editingValue={editingValue}
+              syncNotice={syncNotice}
+              onStartEdit={onStartEdit}
+              onEditValue={onEditValue}
+              onCommitEdit={onCommitEdit}
+              onCancelEdit={onCancelEdit}
+            />
+          </div>
+
+          <ProjectActivityCard
+            session={session}
+            cockpit={cockpit}
+            highlightFields={highlightFields}
+            isProjectDetailLoading={isProjectDetailLoading}
+            snapshotSync={cockpit.snapshotSync}
+            input={input}
+            isSending={isSending}
+            onInput={onInput}
+            onSend={onSend}
+            onQuickReply={onQuickReply}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EmptyProjectState({
+  projects,
+  isSwitchingProject,
+  projectDraftName,
+  input,
+  isCreatingProject,
+  isSending,
+  onProjectDraftNameChange,
+  onInput,
+  onQuickStart,
+  onSelectProject
+}: {
+  projects: ProjectSummary[];
+  isSwitchingProject: boolean;
+  projectDraftName: string;
+  input: string;
+  isCreatingProject: boolean;
+  isSending: boolean;
+  onProjectDraftNameChange: (value: string) => void;
+  onInput: (value: string) => void;
+  onQuickStart: () => void | Promise<void>;
+  onSelectProject: (project: ProjectSummary) => void | Promise<void>;
+}) {
+  const recentProjects = projects
+    .filter((project) => !isInternalProjectName(project.project_name))
+    .slice(0, 4);
+  const visibleProjects = projects.filter((project) => !isInternalProjectName(project.project_name));
+  const stageCounts = {
+    intake: visibleProjects.filter((project) => project.stage === "intake").length,
+    clarifying: visibleProjects.filter((project) => project.stage === "clarifying").length,
+    ready: visibleProjects.filter((project) => project.stage === "solution_ready").length
+  };
+
+  return (
+    <section className="empty-cockpit">
+      <div className="empty-starter-grid">
+        <section className="dash-card starter-card">
+          <div className="card-heading">
+            <div>
+              <p>快速开工</p>
+              <h3>先建项目，再录入客户原话</h3>
+            </div>
+          </div>
+          <div className="starter-form">
+            <div className="project-create starter-project-create">
+              <input
+                value={projectDraftName}
+                onChange={(event) => onProjectDraftNameChange(event.target.value)}
+                placeholder="项目名称，可留空自动生成"
+              />
+            </div>
+            <textarea
+              value={input}
+              onChange={(event) => onInput(event.target.value)}
+              placeholder="直接粘贴客户原话，例如：某医院机房改造，50平，3楼，UPS后备2小时，10个机柜，预算30万。"
+            />
+          </div>
+          <div className="quick-replies compact starter-presets">
+            {quickStartPresets.map((preset) => (
+              <button key={preset} type="button" onClick={() => onInput(preset)}>
+                {preset}
+              </button>
+            ))}
+          </div>
+          <div className="starter-actions">
+            <button
+              className="primary-action"
+              type="button"
+              onClick={() => void onQuickStart()}
+              disabled={isCreatingProject || isSending}
+            >
+              {isCreatingProject || isSending ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
+              {input.trim() ? "创建项目并开始整理" : "创建空白项目"}
+            </button>
+          </div>
+        </section>
+
+        <section className="dash-card empty-card overview-card">
+          <div className="card-heading">
+            <div>
+              <p>项目漏斗</p>
+              <h3>当前项目池</h3>
+            </div>
+          </div>
+          <div className="project-context-grid pipeline-grid">
+            <Metric label="全部项目" value={`${visibleProjects.length}个`} />
+            <Metric label="摸底中" value={`${stageCounts.intake}个`} />
+            <Metric label="待澄清" value={`${stageCounts.clarifying}个`} />
+            <Metric label="方案就绪" value={`${stageCounts.ready}个`} />
+          </div>
+          <div className="empty-project-list project-inbox-list">
+            {recentProjects.length === 0 ? (
+              <div className="project-empty">
+                <Building2 size={16} />
+                <span>还没有近期项目，先从左侧或中间开工台创建一个。</span>
+              </div>
+            ) : (
+              recentProjects.map((project) => (
+                <button
+                  key={project.project_id}
+                  className="project-item"
+                  onClick={() => void onSelectProject(project)}
+                  disabled={isSwitchingProject}
+                >
+                  <Building2 size={16} />
+                  <span className="project-item-body">
+                    <strong>{project.project_name}</strong>
+                    <small>
+                      {projectStageLabel(project.stage)} · 最近更新 {formatTimestampLabel(project.updated_at)}
+                    </small>
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function EmptyOperationsState({ projectCount }: { projectCount: number }) {
+  return (
+    <div className="empty-operations">
+      <section className="dash-card empty-card overview-card">
+        <div className="card-heading">
+          <div>
+            <p>工作台看板</p>
+            <h3>进入项目后显示实时状态</h3>
+          </div>
+        </div>
+        <div className="project-context-grid pipeline-grid">
+          <Metric label="当前项目数" value={`${projectCount}个`} />
+          <Metric label="交付状态" value="待开始" />
+          <Metric label="阻塞风险" value="待计算" />
+        </div>
+      </section>
+
+      <section className="dash-card empty-card placeholder-card">
+        <div className="card-heading">
+          <div>
+            <p>待显示模块</p>
+            <h3>项目阶段、风险、依据、交付</h3>
+          </div>
+        </div>
+        <div className="placeholder-board">
+          <div className="placeholder-row">
+            <strong>项目阶段</strong>
+            <span>未选择项目</span>
+          </div>
+          <div className="placeholder-row">
+            <strong>风险清单</strong>
+            <span>等待计算</span>
+          </div>
+          <div className="placeholder-row">
+            <strong>资料依据</strong>
+            <span>等待命中</span>
+          </div>
+          <div className="placeholder-row">
+            <strong>交付整理</strong>
+            <span>等待开始</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function CockpitCompletenessCard({ cockpit }: { cockpit: PresalesCockpit }) {
+  return (
+    <section className="dash-card summary-card">
+      <div className="card-heading">
+        <div>
+          <p>需求完整度</p>
+          <h3>按售前工作语义分组</h3>
+        </div>
+      </div>
+      <div className="completeness-list">
+        {cockpit.completenessGroups.map((group) => (
+          <article key={group.id} className="completeness-item">
+            <div className="completeness-item-head">
+              <div>
+                <strong>{group.label}</strong>
+                <span>{group.description}</span>
+              </div>
+              <b>
+                {group.captured}/{group.total}
+              </b>
+            </div>
+            <div className="progress-track" aria-hidden="true">
+              <span style={{ width: `${group.completion}%` }} />
+            </div>
+            <p className="completeness-note">
+              {group.missing.length > 0
+                ? `待补：${group.missing.join("、")}`
+                : "这一组已经具备继续推进条件。"}
+            </p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DeliverableStatusCard({ cockpit, asset }: { cockpit: PresalesCockpit; asset: ExportAsset | null }) {
+  return (
+    <section className={`dash-card delivery-card tone-${cockpit.deliverable.tone}`}>
+      <div className="card-heading">
+        <div>
+          <p>交付状态</p>
+          <h3>{cockpit.deliverable.label}</h3>
+        </div>
+        <Download size={20} />
+      </div>
+      <div className="delivery-score">
+        <strong>{cockpit.deliverable.readinessScore}%</strong>
+        <span>准备度</span>
+      </div>
+      <p className="delivery-note">{cockpit.deliverable.note}</p>
+      {cockpit.deliverable.missingCoreLabels.length > 0 && (
+        <div className="delivery-list">
+          {cockpit.deliverable.missingCoreLabels.map((label) => (
+            <span key={label}>{label}</span>
+          ))}
+        </div>
+      )}
+      {asset && (
+        <p className="delivery-foot">
+          最近文件：<strong>{asset.file_name}</strong>
+        </p>
+      )}
+    </section>
+  );
+}
+
+function EvidenceOverviewCard({ cockpit, hits }: { cockpit: PresalesCockpit; hits: KnowledgeHit[] }) {
+  return (
+    <section className="dash-card evidence-card">
+      <div className="card-heading">
+        <div>
+          <p>依据与材料</p>
+          <h3>当前方案不是空口生成</h3>
+        </div>
+        <span className="kb-count">{cockpit.evidenceSummary.totalHitCount} 条</span>
+      </div>
+      <div className="commercial-metrics">
+        <Metric label="资料命中" value={`${cockpit.evidenceSummary.totalHitCount} 条`} />
+        <Metric label="报价/BOQ" value={`${cockpit.evidenceSummary.commercialHitCount} 条`} />
+        <Metric label="关键引用" value={`${Math.min(cockpit.evidenceSummary.topTitles.length, 3)} 条`} />
+      </div>
+      {hits.length > 0 ? (
+        <div className="evidence-list">
+          {cockpit.evidenceSummary.topTitles.map((title) => (
+            <article key={title}>
+              <strong>{title}</strong>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="commercial-note">当前还没有资料命中，继续聊天或上传内部资料后这里会更新。</p>
+      )}
+    </section>
+  );
+}
+
+function ProjectActivityCard({
+  session,
+  cockpit,
+  highlightFields,
+  isProjectDetailLoading,
+  snapshotSync,
   input,
   isSending,
   onInput,
@@ -968,51 +1481,127 @@ function ChatPanel({
   onQuickReply
 }: {
   session: SessionSnapshot;
-  projectDetail: ProjectDetail | null;
+  cockpit: PresalesCockpit;
+  highlightFields: DashboardField[];
   isProjectDetailLoading: boolean;
+  snapshotSync: PresalesCockpit["snapshotSync"];
   input: string;
   isSending: boolean;
   onInput: (value: string) => void;
   onSend: () => void;
   onQuickReply: (value: string) => void;
 }) {
-  const projectTitle = session.project?.project_name
-    ? session.project.project_name
-    : session.dashboard_fields.customer_name.value
-      ? session.dashboard_fields.customer_name.displayValue
-      : "请选择项目后开始摸底";
+  const [showFullFeed, setShowFullFeed] = useState(false);
+  const timelineSummary = [
+    {
+      label: "当前阶段",
+      value: cockpit.stageLabel,
+      note: cockpit.nextAction
+    },
+    {
+      label: "当前重点",
+      value:
+        cockpit.deliverable.blockerIds.length > 0
+          ? `先处理 ${cockpit.deliverable.blockerIds.length} 条阻塞项`
+          : cockpit.deliverable.missingCoreLabels.length > 0
+            ? cockpit.deliverable.missingCoreLabels.slice(0, 2).join(" / ")
+            : "进入人工确认与方案整理",
+      note:
+        cockpit.deliverable.blockerIds.length > 0
+          ? "风险未清前不建议直接进入正式交付。"
+          : cockpit.deliverable.missingCoreLabels.length > 0
+            ? "这些口径补齐后，工作台会继续提升交付准备度。"
+            : "当前已具备继续细化配置和整理交付稿的条件。"
+    },
+    {
+      label: "交付状态",
+      value: cockpit.deliverable.label,
+      note: snapshotSync.hasArchivedSnapshot
+        ? `项目档案已同步 · ${formatTimestampLabel(snapshotSync.updatedAt)}`
+        : "当前还没有形成可复用的归档快照。"
+    }
+  ];
+
+  useEffect(() => {
+    setShowFullFeed(false);
+  }, [session.project?.project_id]);
+
+  const visibleMessages = showFullFeed ? session.messages : session.messages.slice(-3);
 
   return (
-    <section className="chat-panel">
-      <header className="panel-header chat-titlebar">
+    <section className="workspace-card project-activity-card">
+      <div className="card-heading">
         <div>
-          <p>{session.project ? `当前项目 · ${projectStageLabel(session.project.stage)}` : "当前商机"}</p>
-          <h2>{projectTitle}</h2>
+          <p>项目时间线</p>
+          <h3>线索、整理与确认记录</h3>
         </div>
-        <div className={`completion-pill completion-${session.completion >= 95 ? "ready" : "active"}`}>
-          采集率 {session.completion}%
-        </div>
-      </header>
+        {session.messages.length > 3 && (
+          <button
+            className="feed-toggle"
+            type="button"
+            onClick={() => setShowFullFeed((current) => !current)}
+          >
+            {showFullFeed ? "收起时间线" : "展开全部"}
+          </button>
+        )}
+      </div>
 
-      {session.project && (
-        <ProjectOverviewStrip
-          session={session}
-          projectDetail={projectDetail}
-          isLoading={isProjectDetailLoading}
-        />
-      )}
-
-      <div className="message-list">
-        {session.messages.map((message) => (
-          <article key={message.id} className={`message-row ${message.sender}`}>
-            <div className="avatar">
-              {message.sender === "ai" ? <Bot size={17} /> : <MessageCircle size={17} />}
-            </div>
-            <div className="message-bubble">{message.text}</div>
+      <div className="activity-summary-grid">
+        {timelineSummary.map((item) => (
+          <article key={item.label} className="activity-summary-item">
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <small>{item.note}</small>
           </article>
         ))}
-        {session.quick_replies.length > 0 && (
-          <div className="quick-replies">
+      </div>
+
+      <div className="workspace-sync">
+        <p className="project-overview-note">
+          {isProjectDetailLoading ? (
+            <Loader2 className="spin" size={14} />
+          ) : snapshotSync.archivedSessionId ? (
+            <Check size={14} />
+          ) : (
+            <RefreshCw size={14} />
+          )}
+          <span>
+            {snapshotSync.hasArchivedSnapshot
+              ? `项目档案已同步 · 最近更新 ${formatTimestampLabel(snapshotSync.updatedAt)}`
+              : "补充客户线索后，项目档案会自动更新。"}
+          </span>
+        </p>
+
+        {highlightFields.length > 0 ? (
+          <ProjectSnapshotChips fields={highlightFields} compact />
+        ) : (
+          <p className="project-overview-empty">
+            当前项目还没有形成可复用快照，先把客户原话、面积、楼层、UPS 或机柜线索发进来。
+          </p>
+        )}
+      </div>
+
+      <div className="activity-list">
+        {visibleMessages.map((message) => (
+          <article key={message.id} className={`activity-item ${message.sender}`}>
+            <span className={`activity-dot ${message.sender}`} aria-hidden="true" />
+            <div className="activity-body">
+              <div className="activity-meta">
+                <span className={`activity-tag ${message.sender}`}>
+                  {message.sender === "ai" ? "系统整理" : "客户补充"}
+                </span>
+                <small>{formatTimestampLabel(message.timestamp)}</small>
+              </div>
+              <p>{message.text}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {session.quick_replies.length > 0 && (
+        <div className="activity-actions">
+          <span className="section-label">常用补充</span>
+          <div className="quick-replies compact">
             {session.quick_replies.map((reply) => (
               <button key={reply} onClick={() => onQuickReply(reply)}>
                 {reply}
@@ -1020,164 +1609,90 @@ function ChatPanel({
               </button>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="chat-input-bar">
-        <button
-          className="icon-button"
-          title="语音输入占位"
-          onClick={() => alert("语音输入入口已预留，当前MVP使用文字模拟。")}
-        >
-          <Mic size={19} />
-        </button>
+      <div className="chat-input-bar activity-input-bar">
         <input
           value={input}
           onChange={(event) => onInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") onSend();
           }}
-          placeholder={demoPrompt}
+          placeholder="例如：新增 2 台机柜，预算上限 45 万，客户希望国产优先。"
         />
         <button className="send-button" onClick={onSend} disabled={isSending || !input.trim()}>
           {isSending ? <Loader2 className="spin" size={18} /> : <Send size={18} />}
-          发送
+          记录线索
         </button>
       </div>
     </section>
   );
 }
 
-function DashboardPanel({
+function OperationsPanel({
   session,
+  cockpit,
+  projects,
   projectDetail,
   isProjectDetailLoading,
-  fields,
-  editingField,
-  editingValue,
-  syncNotice,
   isExporting,
-  onStartEdit,
-  onEditValue,
-  onCommitEdit,
-  onCancelEdit,
   onExport
 }: {
   session: SessionSnapshot;
+  cockpit: PresalesCockpit;
+  projects: ProjectSummary[];
   projectDetail: ProjectDetail | null;
   isProjectDetailLoading: boolean;
-  fields: DashboardField[];
-  editingField: string | null;
-  editingValue: string;
-  syncNotice: string | null;
   isExporting: boolean;
-  onStartEdit: (field: DashboardField) => void;
-  onEditValue: (value: string) => void;
-  onCommitEdit: (field: DashboardField) => void;
-  onCancelEdit: () => void;
   onExport: () => void;
 }) {
+  if (!cockpit.hasProject) {
+    return (
+      <aside className="operations-panel">
+        <div className="operations-scroll">
+          <EmptyOperationsState
+            projectCount={projects.filter((project) => !isInternalProjectName(project.project_name)).length}
+          />
+        </div>
+
+        <div className="action-zone passive">
+          <div className="delivery-brief tone-attention">
+            <strong>未进入项目</strong>
+            <span>选择项目后开始整理</span>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="dashboard-panel">
-      <div className="dashboard-scroll">
+    <aside className="operations-panel">
+      <div className="operations-scroll">
         <ProjectContextCard
           session={session}
           projectDetail={projectDetail}
+          cockpit={cockpit}
           isLoading={isProjectDetailLoading}
         />
-        <RiskCard risks={session.triggered_risks} />
+        <SuggestionCard suggestion={session.suggestion} />
         <KnowledgeCard hits={session.knowledge_hits} />
         <CommercialSummaryCard hits={session.knowledge_hits} />
-
-        <section className="dash-card">
-          <div className="card-heading">
-            <div>
-              <p>需求要素</p>
-              <h3>自动提取的项目数据</h3>
-            </div>
-            {syncNotice && <span className="sync-chip">{syncNotice}</span>}
-          </div>
-          <div className="field-grid">
-            {fields.map((field) => (
-              <FieldEditor
-                key={field.code}
-                field={field}
-                isEditing={editingField === field.code}
-                editingValue={editingValue}
-                onStartEdit={onStartEdit}
-                onEditValue={onEditValue}
-                onCommitEdit={onCommitEdit}
-                onCancelEdit={onCancelEdit}
-              />
-            ))}
-          </div>
-        </section>
-
-        <SuggestionCard suggestion={session.suggestion} />
 
         {session.export_asset && <ExportAssetCard asset={session.export_asset} />}
       </div>
 
       <div className="action-zone">
+        <div className={`delivery-brief tone-${cockpit.deliverable.tone}`}>
+          <strong>{cockpit.deliverable.label}</strong>
+          <span>{cockpit.nextAction}</span>
+        </div>
         <button className="export-button" onClick={onExport} disabled={isExporting}>
           {isExporting ? <Loader2 className="spin" size={20} /> : <Download size={20} />}
-          生成 Word 需求表 ¥99
-        </button>
-        <button className="secondary-action" onClick={() => alert("反馈入口已保留，后续可接入用户反馈表。")}>
-          <ClipboardList size={18} />
-          提交内测反馈
+          整理交付稿
         </button>
       </div>
     </aside>
-  );
-}
-
-function ProjectOverviewStrip({
-  session,
-  projectDetail,
-  isLoading
-}: {
-  session: SessionSnapshot;
-  projectDetail: ProjectDetail | null;
-  isLoading: boolean;
-}) {
-  const snapshotStats = countSnapshotFields(session.dashboard_fields);
-  const highlightFields = snapshotHighlightFields(session.dashboard_fields);
-  const archivedSessionId =
-    projectDetail?.primary_session_id ?? (isProjectSessionBound(session) ? session.session_id : null);
-
-  return (
-    <section className="project-overview">
-      <div className="project-overview-grid">
-        <Metric label="已采集字段" value={`${snapshotStats.captured}/${snapshotStats.total}`} />
-        <Metric label="待确认" value={`${snapshotStats.pending}项`} />
-        <Metric label="风险提示" value={`${session.triggered_risks.length}条`} />
-        <Metric label="资料命中" value={`${session.knowledge_hits.length}条`} />
-      </div>
-
-      {highlightFields.length > 0 ? (
-        <ProjectSnapshotChips fields={highlightFields} />
-      ) : (
-        <p className="project-overview-empty">
-          当前项目还没有形成可复用快照，先把客户原话、面积、楼层、UPS或机柜线索发进来。
-        </p>
-      )}
-
-      <p className="project-overview-note">
-        {isLoading ? (
-          <Loader2 className="spin" size={14} />
-        ) : archivedSessionId ? (
-          <Check size={14} />
-        ) : (
-          <RefreshCw size={14} />
-        )}
-        <span>
-          {archivedSessionId
-            ? `项目快照已归档到会话 ${archivedSessionId.slice(-8)} · 最近同步 ${formatTimestampLabel(projectDetail?.updated_at)}`
-            : "当前还是项目草稿，发一条项目线索后会自动写入项目档案。"}
-        </span>
-      </p>
-    </section>
   );
 }
 
@@ -1243,13 +1758,81 @@ function FieldEditor({
   );
 }
 
+function RequirementWorkbenchCard({
+  cockpit,
+  editingField,
+  editingValue,
+  syncNotice,
+  onStartEdit,
+  onEditValue,
+  onCommitEdit,
+  onCancelEdit
+}: {
+  cockpit: PresalesCockpit;
+  editingField: string | null;
+  editingValue: string;
+  syncNotice: string | null;
+  onStartEdit: (field: DashboardField) => void;
+  onEditValue: (value: string) => void;
+  onCommitEdit: (field: DashboardField) => void;
+  onCancelEdit: () => void;
+}) {
+  return (
+    <section className="dash-card requirement-card">
+      <div className="card-heading">
+        <div>
+          <p>需求工作区</p>
+          <h3>关键字段与人工确认</h3>
+        </div>
+        {syncNotice && <span className="sync-chip">{syncNotice}</span>}
+      </div>
+      <div className="requirement-groups">
+        {cockpit.completenessGroups.map((group) => (
+          <section key={group.id} className="field-group">
+            <div className="field-group-head">
+              <div>
+                <h4>{group.label}</h4>
+                <p>{group.description}</p>
+              </div>
+              <span className="group-progress">
+                {group.captured}/{group.total}
+              </span>
+            </div>
+            <p className="field-group-missing">
+              {group.missing.length > 0
+                ? `待补：${group.missing.join("、")}`
+                : "这一组已经具备推进条件，可继续做人工确认。"}
+            </p>
+            <div className="field-grid">
+              {group.fields.map((field) => (
+                <FieldEditor
+                  key={field.code}
+                  field={field}
+                  isEditing={editingField === field.code}
+                  editingValue={editingValue}
+                  onStartEdit={onStartEdit}
+                  onEditValue={onEditValue}
+                  onCommitEdit={onCommitEdit}
+                  onCancelEdit={onCancelEdit}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ProjectContextCard({
   session,
   projectDetail,
+  cockpit,
   isLoading
 }: {
   session: SessionSnapshot;
   projectDetail: ProjectDetail | null;
+  cockpit: PresalesCockpit;
   isLoading: boolean;
 }) {
   if (!session.project) {
@@ -1257,7 +1840,7 @@ function ProjectContextCard({
       <section className="dash-card quiet-card">
         <div className="quiet-state">
           <Building2 size={20} />
-          <span>先在左侧创建或选择项目，聊天与导出才会写入项目协作上下文。</span>
+          <span>选择一个项目后，这里会汇总阶段、交付状态、风险数量和资料依据。</span>
         </div>
       </section>
     );
@@ -1275,7 +1858,7 @@ function ProjectContextCard({
     <section className="dash-card project-context-card">
       <div className="card-heading">
         <div>
-          <p>项目协作上下文</p>
+          <p>项目档案</p>
           <h3>{session.project.project_name}</h3>
         </div>
         <span className={`stage-chip ${projectStageClass(session.project.stage)}`}>
@@ -1284,20 +1867,13 @@ function ProjectContextCard({
       </div>
       <div className="project-context-grid">
         <Metric label="项目阶段" value={projectStageLabel(session.project.stage)} />
-        <Metric label="会话版本" value={`v${session.state_version}`} />
-        <Metric label="当前会话" value={session.session_id.slice(-8)} />
+        <Metric label="交付状态" value={cockpit.deliverable.label} />
+        <Metric label="风险数量" value={`${cockpit.riskSummary.total}条`} />
       </div>
       <div className="project-context-grid project-context-secondary">
         <Metric label="已采集字段" value={`${snapshotStats.captured}/${snapshotStats.total}`} />
         <Metric label="待确认" value={`${snapshotStats.pending}项`} />
-        <Metric
-          label="最近归档"
-          value={
-            hasArchivedSnapshot && projectDetail?.updated_at
-              ? formatTimestampLabel(projectDetail.updated_at)
-              : "待归档"
-          }
-        />
+        <Metric label="资料依据" value={`${cockpit.evidenceSummary.totalHitCount}条`} />
       </div>
       {highlightFields.length > 0 ? (
         <ProjectSnapshotChips fields={highlightFields} compact />
@@ -1307,10 +1883,15 @@ function ProjectContextCard({
         </p>
       )}
       <p className="project-context-note">
-        {isProjectSessionBound(session)
-          ? `当前对话已绑定到后端项目${projectDetail?.primary_session_id ? `（归档会话 ${projectDetail.primary_session_id.slice(-8)}）` : ""}，会随着聊天、看板修正和导出一起推进。`
-          : "当前是项目草稿会话。先发一条项目线索，系统才会把本轮摸底正式绑定到后端项目。"}
+        {isLoading
+          ? "正在读取项目快照..."
+          : isProjectSessionBound(session)
+            ? "当前沟通、字段修正和交付整理都会同步到这个项目档案。"
+            : "发出第一条客户线索后，这个项目会开始自动沉淀信息。"}
       </p>
+      {hasArchivedSnapshot && projectDetail?.updated_at && (
+        <p className="project-context-note">最近归档：{formatTimestampLabel(projectDetail.updated_at)}</p>
+      )}
     </section>
   );
 }
@@ -1334,7 +1915,7 @@ function RiskCard({ risks }: { risks: RiskFlag[] }) {
       <section className="dash-card quiet-card">
         <div className="quiet-state">
           <ShieldAlert size={20} />
-          <span>暂无强制风险触发</span>
+          <span>当前没有触发强制阻塞风险，可以继续推进项目。</span>
         </div>
       </section>
     );
@@ -1344,15 +1925,15 @@ function RiskCard({ risks }: { risks: RiskFlag[] }) {
     <section className="dash-card risk-card">
       <div className="card-heading">
         <div>
-          <p>专家规则引擎</p>
-          <h3>隐性施工风险</h3>
+          <p>风险与确认项</p>
+          <h3>当前需要盯住的事项</h3>
         </div>
         <AlertTriangle size={22} />
       </div>
       <div className="risk-list">
         {risks.map((risk) => (
           <article key={risk.id} className={`risk-item ${risk.level === "P0_BLOCKER" ? "blocker" : ""}`}>
-            <strong>{risk.id}</strong>
+            <strong>{risk.blocking ? "阻塞风险" : "重点确认项"}</strong>
             <span>{risk.text}</span>
           </article>
         ))}
@@ -1362,12 +1943,23 @@ function RiskCard({ risks }: { risks: RiskFlag[] }) {
 }
 
 function KnowledgeCard({ hits }: { hits: KnowledgeHit[] }) {
+  if (hits.length === 0) {
+    return (
+      <section className="dash-card quiet-card">
+        <div className="quiet-state">
+          <FileText size={20} />
+          <span>继续聊天或上传资料后，这里会显示当前项目的引用依据。</span>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="dash-card knowledge-card">
       <div className="card-heading">
         <div>
-          <p>本地知识库</p>
-          <h3>可引用资料命中</h3>
+          <p>证据明细</p>
+          <h3>当前项目引用到的资料</h3>
         </div>
         <span className="kb-count">{hits.length} 条</span>
       </div>
@@ -1433,7 +2025,7 @@ function CommercialSummaryCard({ hits }: { hits: KnowledgeHit[] }) {
       <div className="card-heading">
         <div>
           <p>历史报价线索</p>
-          <h3>报价与BOQ摘要</h3>
+          <h3>报价与 BOQ 摘要</h3>
         </div>
         <span className="commercial-count">
           {summary.sourceFiles.length || summary.commercialHits.length} 个来源
@@ -1514,7 +2106,7 @@ function SuggestionCard({ suggestion }: { suggestion: SessionSnapshot["suggestio
       <div className="card-heading">
         <div>
           <p>测算建议</p>
-          <h3>配置与导出摘要</h3>
+          <h3>配置建议与工程提示</h3>
         </div>
         {suggestion.stale && (
           <span className="stale-chip">
@@ -1552,7 +2144,7 @@ function ExportAssetCard({ asset }: { asset: ExportAsset }) {
     <section className="dash-card asset-card">
       <div className="card-heading">
         <div>
-          <p>导出结果</p>
+          <p>交付文件</p>
           <h3>{asset.file_name}</h3>
         </div>
         <FileText size={22} />
@@ -1571,8 +2163,8 @@ function ExportAssetCard({ asset }: { asset: ExportAsset }) {
   );
 }
 
-function ExportPaymentModal({
-  request,
+function ExportReviewModal({
+  request: _request,
   isExporting,
   onClose,
   onPay,
@@ -1590,19 +2182,19 @@ function ExportPaymentModal({
         <button className="close-modal" onClick={onClose} title="关闭">
           <X size={18} />
         </button>
-        <span className="modal-kicker">Word Export Gate</span>
-        <h2 id="payment-title">生成正式版需求表</h2>
+        <span className="modal-kicker">正式整理流程</span>
+        <h2 id="payment-title">整理正式交付稿</h2>
         <p>
-          这版Word需求表会把本地知识库引用、项目概况、建设范围、关键设备口径、风险提示和待确认事项整理成可发给同事或供应商的正式文档。
-          是否愿意支付 {request.billing_check.amount_rmb} RMB 生成并下载正式版？
+          系统会把当前项目的需求、风险、资料依据和配置建议整理成正式文档，便于内部复核或继续对外协同。
+          是否继续进入正式整理流程？
         </p>
         <div className="modal-actions">
           <button className="pay-button" onClick={onPay} disabled={isExporting}>
             {isExporting ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-            愿意，生成正式版
+            继续整理正式稿
           </button>
           <button className="preview-button" onClick={onPreview} disabled={isExporting}>
-            先预览免费版
+            先看预览稿
           </button>
           <button className="ghost-button" onClick={onClose} disabled={isExporting}>
             暂时不用

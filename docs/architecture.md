@@ -14,12 +14,12 @@ JF Agent Workstation is a pre-sales assistant for data center and machine-room c
 
 ```text
 User
-  -> React chat UI
+  -> React project-led cockpit UI
   -> switchable session API in src/sessionApi.ts
   -> mock session API in src/mockApi.ts OR backend API in server/
   -> field extraction / risk mock / knowledge retrieval / optional OpenAI-compatible LLM
   -> SessionSnapshot state
-  -> right dashboard + knowledge hits + export gate
+  -> left project pool + center cockpit + right presales operations rail
 ```
 
 Local knowledge ingestion:
@@ -45,6 +45,9 @@ Seed user/admin
 ```
 
 The frontend now calls through `src/sessionApi.ts`, which defaults to `src/mockApi.ts` and can be switched to the backend API skeleton with `VITE_SESSION_API_MODE=backend`. In backend mode, the frontend also consumes `/api/projects`, `GET /api/session`, and `GET /api/projects/{project_id}` so the left sidebar can create/select projects, restore bound session snapshots, surface project snapshot summaries, and keep chat/export flows anchored to a chosen project. `/api/session/chat` remains responsible for returning `knowledge_hits`; the browser only renders the citations it receives.
+
+The shipped workstation experience is now Presales Workstation V2, not the original chat-led MVP shell. The first viewport is designed to answer four presales questions before the user scrolls or opens chat: project completeness, current risk level, evidence basis, and delivery/export status. Chat still exists, but it is subordinate to the project cockpit and acts as a work-advancement surface rather than the primary information architecture.
+Runtime diagnostics, model status, and storage details are intentionally kept off the normal product surface and remain available only through the hidden admin entry (`?admin=1`).
 
 ## Target Architecture
 
@@ -97,26 +100,30 @@ Current endpoints:
 - `GET /api/assets/{asset_id}/download`
 - `GET /api/admin/knowledge/status`
 - `POST /api/admin/knowledge/upload`
+- `GET /api/admin/runtime/status`
 
 Current behavior:
 
-- In-memory project store alongside in-memory session store.
+- SQLite-backed session, project, export-asset, and knowledge-upload metadata persistence under `data/jfagent.sqlite`.
+- In-memory caches still exist inside the current Node process, but SQLite is now the runtime source of truth for persisted backend records.
+- When a persisted session is reloaded, the backend rebuilds suggestion, triggered-risk, and FSM-derived state from current dashboard fields before returning the snapshot. This keeps dashboard fields as the durable source of truth and prevents legacy persisted wording or stale derived state from leaking into the V2 workstation.
 - In backend mode, chat and export flows can bind a session to a project via `project_id`.
 - `GET /api/session` returns a read-only session snapshot under `data` and includes the bound project summary when one exists.
-- In-memory session store.
 - Mock field extraction and rule hints.
 - Backend-side local hybrid knowledge retrieval for chat responses.
 - Optional OpenAI-compatible chat completion for expert response and low-precedence field candidates.
-- Admin-only seed-trial knowledge upload, index rebuild, and backend retrieval hot reload.
+- Chat/session runtime visibility that reports whether the latest answer used `real_llm` or deterministic fallback.
+- Admin-only seed-trial knowledge upload, upload-job status persistence, index rebuild, and backend retrieval hot reload.
+- Admin runtime status for current model config plus local storage/runtime paths.
 - Manual override precedence.
 - Export payload assembly for Word rendering.
 - First-pass `.docx` rendering through `python-docx`.
-- In-memory export asset registry and download route.
+- Export asset registry persisted so generated `.docx` files remain downloadable after API restarts as long as files still exist on disk.
 - 402 payment-willingness gate for final export.
 - Free preview export response.
 - Container entrypoint rebuilds the runtime knowledge index on API startup so persisted uploads are available after image upgrades.
 
-The backend project domain provides lightweight CRUD-style project records that sit beside session state, giving the API a stable boundary for future tenant/project storage without forcing session documents to carry all project metadata. The current project service is in-memory and smoke-tested via:
+The backend project domain provides lightweight CRUD-style project records that sit beside session state, giving the API a stable boundary for future tenant/project storage without forcing session documents to carry all project metadata. The current project service persists through SQLite and is smoke-tested via:
 
 - `GET /api/projects`
 - `POST /api/projects`
@@ -132,12 +139,22 @@ Location: `src/`
 
 Responsibilities:
 
-- Chat-style project intake.
+- Project-led workstation shell with a three-column cockpit layout.
 - Project creation, selection, snapshot hydration, and project snapshot summary display from the backend project domain.
-- Quick reply chips.
-- Editable dashboard fields.
-- Risk and knowledge citation display.
-- Export/payment intent UI.
+- First-viewport project signals for completeness, risk, evidence basis, and delivery/export status.
+- Editable cockpit fields and project facts as the highest-precedence visible state.
+- Right-side presales operations rail for actions, evidence handling, export progression, and operational nudges.
+- Hidden admin-only diagnostics and knowledge-upload tools under `?admin=1`, separate from the normal operator surface.
+- Subordinate chat workspace for advancing the project after the cockpit context is visible.
+- Quick reply chips, risk display, knowledge citation display, and export/payment-intent UI.
+
+Current workstation shape:
+
+- Left column: project pool, project switching, and summary cues for active work.
+- Center column: project cockpit, structured facts, progress state, risk/evidence/delivery signals, and the chat workspace below the main project view.
+- Right column: presales operations rail for next actions, knowledge-backed assistance, and export progression.
+
+This structure intentionally promotes project state above conversation state. Users should understand the project situation from the first screen even if they never expand the chat history. The chat area remains important for extraction, clarification, and collaboration, but it is no longer the page's dominant frame.
 
 Current important files:
 
@@ -162,13 +179,15 @@ Responsibilities:
 
 Current important files:
 
-- `server/sessionService.ts`: in-memory session behavior and API response assembly.
-- `server/projectService.ts`: in-memory project domain store and project summary cloning.
+- `server/sessionService.ts`: session behavior, API response assembly, and SQLite-backed session persistence wiring.
+- `server/projectService.ts`: project domain store, summary cloning, and SQLite-backed project persistence wiring.
+- `server/persistence.ts`: SQLite persistence helpers for sessions, projects, export assets, knowledge uploads, upload jobs, and retrieval audit rows.
+- `server/runtimePaths.ts`: central runtime path resolution for `data/`, `output/doc/`, and `knowledge/uploads/`.
 - `server/llmClient.ts`: OpenAI-compatible Chat Completions client with JSON-mode retry and safe fallback.
 - `server/localVectorSearch.ts`: backend-side local hybrid keyword/vector retrieval for `/api/session/chat`.
 - `server/generatedKnowledge.json`: generated runtime backend knowledge chunks.
 - `server/exportPayload.ts`: frozen export payload schema, chapter plan builder, placeholder BOM, and schema-level validation.
-- `server/exportDocument.ts`: DOCX rendering orchestration, asset persistence, and file metadata.
+- `server/exportDocument.ts`: DOCX rendering orchestration plus persisted asset lookup/recovery.
 - `server/http.ts`: route handling and JSON envelopes.
 - `scripts/render-export-docx.py`: Python `python-docx` renderer for `ExportPayloadV1`.
 
@@ -222,6 +241,7 @@ It contains:
 - `knowledge_hits`
 - `suggestion`
 - `export_asset`
+- `agent_runtime`
 
 Project state now exists alongside session state as a separate backend domain object. The shipped backend chat and export flows can bind a session to a project, and project records are synced from session state after chat and dashboard override updates. `/api/session` exposes a read-only snapshot under `data`, including the bound project summary, and `/api/projects` can create, list, and fetch project records. The project snapshot is the backend source of truth for current stage plus dashboard snapshot.
 
@@ -245,13 +265,16 @@ dashboard_edit > user_message > upload > button_chip > agent_inference > default
 1. User sends a messy project description.
 2. Backend mode first applies deterministic field extraction and local hybrid retrieval; mock mode still uses the browser mock path.
 3. If `OPENAI_API_KEY` is configured, backend mode asks an OpenAI-compatible model for a Chinese pre-sales response, quick replies, and `agent_inference` field candidates.
-4. LLM candidates can only fill existing dashboard fields and cannot overwrite manual edits or values already extracted from user/upload/chip sources.
-5. Rule mock identifies risks and sizing suggestions after field updates.
-6. UI updates chat, dashboard fields, risks, and knowledge hits.
-7. User edits dashboard fields when needed.
-8. Export button triggers 99 RMB payment-willingness modal.
-9. Approved formal export builds `ExportPayloadV1`, renders a real `.docx`, stores it under `output/doc/`, and exposes a download URL.
-10. Free preview still returns a simulated preview asset until PDF preview rendering is implemented.
+4. The backend records whether the turn used `real_llm` or fallback and exposes that runtime summary to the workstation UI.
+5. LLM candidates can only fill existing dashboard fields and cannot overwrite manual edits or values already extracted from user/upload/chip sources.
+6. Rule mock identifies risks and sizing suggestions after field updates.
+7. UI updates chat, dashboard fields, risks, knowledge hits, and latest agent runtime state.
+8. User edits dashboard fields when needed.
+9. Main workstation actions keep payment copy quiet; when the user reaches formal export, backend-gated payment-willingness logic still governs the approval path.
+10. Approved formal export builds `ExportPayloadV1`, renders a real `.docx`, stores it under `output/doc/`, and exposes a download URL.
+11. Free preview still returns a simulated preview asset until PDF preview rendering is implemented.
+12. Session/project/export/upload metadata survive API restarts because the backend reloads them from SQLite-backed storage.
+13. On reload, the backend re-derives suggestion, risk, and FSM status from dashboard fields so the project cockpit always reflects current product semantics instead of stale persisted copy.
 
 ## Key Boundaries
 

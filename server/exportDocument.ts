@@ -4,6 +4,8 @@ import { basename, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ExportAsset } from "./types.js";
 import type { ExportPayloadV1 } from "./exportPayload.js";
+import { loadExportAsset, saveExportAsset, type StoredAssetRecord } from "./persistence.js";
+import { getOutputDir } from "./runtimePaths.js";
 
 interface StoredAsset {
   asset: ExportAsset;
@@ -18,7 +20,7 @@ export interface RenderedExportDocument {
   };
 }
 
-const outputDir = resolve(process.cwd(), "output/doc");
+const outputDir = getOutputDir();
 const renderScript = resolve(process.cwd(), "scripts/render-export-docx.py");
 const renderedAssets = new Map<string, StoredAsset>();
 
@@ -92,6 +94,14 @@ export function renderExportDocx(payload: ExportPayloadV1): RenderedExportDocume
     size_bytes: stat.size
   };
   renderedAssets.set(assetId, { asset, file_path: docxPath });
+  const storedRecord: StoredAssetRecord = {
+    asset,
+    file_path: docxPath,
+    session_id: payload.session_id,
+    state_version: payload.state_version,
+    created_at: new Date().toISOString()
+  };
+  saveExportAsset(storedRecord);
 
   return {
     asset,
@@ -100,5 +110,11 @@ export function renderExportDocx(payload: ExportPayloadV1): RenderedExportDocume
 }
 
 export function getRenderedAsset(assetId: string) {
-  return renderedAssets.get(assetId) ?? null;
+  const cached = renderedAssets.get(assetId);
+  if (cached) return cached;
+  const stored = loadExportAsset(assetId);
+  if (!stored) return null;
+  const recovered = { asset: stored.asset, file_path: stored.file_path };
+  renderedAssets.set(assetId, recovered);
+  return recovered;
 }

@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createApiServer } from "./http.js";
-import { createProject, getProject } from "./projectService.js";
-import { getSessionSnapshot } from "./sessionService.js";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+
+const smokeRoot = mkdtempSync(resolve(tmpdir(), "jfagent-smoke-"));
+process.env.JFAGENT_DATA_DIR = resolve(smokeRoot, "data");
+process.env.JFAGENT_OUTPUT_DIR = resolve(smokeRoot, "output/doc");
+process.env.JFAGENT_UPLOAD_DIR = resolve(smokeRoot, "knowledge/uploads");
+
+const { createApiServer } = await import("./http.js");
+const { saveSession } = await import("./persistence.js");
+const { createProject, getProject } = await import("./projectService.js");
+const { getSessionSnapshot } = await import("./sessionService.js");
 
 const server = createApiServer();
 
@@ -93,6 +104,56 @@ async function requestBytes(path: string) {
   return { status: response.status, headers: response.headers, body };
 }
 
+async function waitForHealth(url: string) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      const response = await fetch(`${url}/api/health`);
+      if (response.ok) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  throw lastError instanceof Error ? lastError : new Error("Timed out waiting for external API server.");
+}
+
+async function startExternalApiServer() {
+  const port = 3300 + Math.floor(Math.random() * 300);
+  const child = spawn(process.execPath, ["server-dist/index.js"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: "127.0.0.1"
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  const output: string[] = [];
+  child.stdout.on("data", (chunk) => {
+    output.push(String(chunk));
+  });
+  child.stderr.on("data", (chunk) => {
+    output.push(String(chunk));
+  });
+
+  const baseChildUrl = `http://127.0.0.1:${port}`;
+  await waitForHealth(baseChildUrl);
+
+  return {
+    baseUrl: baseChildUrl,
+    child,
+    close: async () => {
+      child.kill("SIGTERM");
+      await new Promise<void>((resolveClose) => {
+        child.once("exit", () => resolveClose());
+      });
+    },
+    output
+  };
+}
+
 try {
   const health = await requestJson("/api/health");
   assert.equal(health.status, 200);
@@ -105,6 +166,31 @@ try {
   };
   assert.ok(knowledgeStatusData.index.chunk_count > 0);
   assert.ok(knowledgeStatusData.index.index_file.endsWith("server/generatedKnowledge.json"));
+
+  const runtimeStatus = await requestJson("/api/admin/runtime/status");
+  assert.equal(runtimeStatus.status, 200);
+  const runtimeStatusData = runtimeStatus.body.data as {
+    agent: {
+      llm_configured: boolean;
+      provider_name: string;
+      base_url: string;
+      model: string;
+      timeout_ms: number;
+    };
+    storage: {
+      database_path: string;
+      upload_dir: string;
+      output_dir: string;
+    };
+  };
+  assert.equal(runtimeStatusData.agent.llm_configured, false);
+  assert.equal(runtimeStatusData.agent.provider_name, "openai_compatible");
+  assert.equal(runtimeStatusData.agent.base_url, "https://api.openai.com/v1");
+  assert.equal(runtimeStatusData.agent.model, "gpt-4o-mini");
+  assert.equal(runtimeStatusData.agent.timeout_ms, 12000);
+  assert.equal(runtimeStatusData.storage.database_path, resolve(smokeRoot, "data", "jfagent.sqlite"));
+  assert.equal(runtimeStatusData.storage.upload_dir, resolve(smokeRoot, "knowledge/uploads"));
+  assert.equal(runtimeStatusData.storage.output_dir, resolve(smokeRoot, "output/doc"));
 
   const createdProject = await requestJson("/api/projects", {
     method: "POST",
@@ -210,6 +296,44 @@ try {
   assert.equal(invalidKnowledgeUpload.status, 400);
   assert.equal((invalidKnowledgeUpload.body.error as { code: string }).code, "VALIDATION_ERROR");
 
+  const uploadMarkdown = Buffer.from(
+    "# 上传验证\n\n这是一个用于持久化 smoke 的临时知识片段。",
+    "utf8"
+  ).toString("base64");
+  const successfulKnowledgeUpload = await requestJson("/api/admin/knowledge/upload", {
+    method: "POST",
+    body: JSON.stringify({
+      file_name: "验收资料.md",
+      content_base64: uploadMarkdown
+    })
+  });
+  assert.equal(successfulKnowledgeUpload.status, 200);
+  const successfulKnowledgeUploadData = successfulKnowledgeUpload.body.data as {
+    uploaded_file: { stored_file_name: string; original_file_name: string };
+    job: { status: string; file_name: string };
+  };
+  assert.equal(successfulKnowledgeUploadData.uploaded_file.original_file_name, "验收资料.md");
+  assert.equal(successfulKnowledgeUploadData.job.status, "completed");
+  assert.equal(successfulKnowledgeUploadData.job.file_name, "验收资料.md");
+
+  const uploadedKnowledgeStatus = await requestJson("/api/admin/knowledge/status");
+  assert.equal(uploadedKnowledgeStatus.status, 200);
+  const uploadedKnowledgeStatusData = uploadedKnowledgeStatus.body.data as {
+    rebuild_status: string;
+    uploaded_file_count: number;
+    pending_job_count: number;
+    last_uploaded_file: { original_file_name?: string; stored_file_name: string } | null;
+    active_job: { status: string } | null;
+    latest_job: { status: string; file_name: string } | null;
+  };
+  assert.equal(uploadedKnowledgeStatusData.rebuild_status, "idle");
+  assert.ok(uploadedKnowledgeStatusData.uploaded_file_count >= 1);
+  assert.equal(uploadedKnowledgeStatusData.pending_job_count, 0);
+  assert.equal(uploadedKnowledgeStatusData.last_uploaded_file?.original_file_name, "验收资料.md");
+  assert.equal(uploadedKnowledgeStatusData.active_job, null);
+  assert.equal(uploadedKnowledgeStatusData.latest_job?.status, "completed");
+  assert.equal(uploadedKnowledgeStatusData.latest_job?.file_name, "验收资料.md");
+
   const chat = await requestJson("/api/session/chat", {
     method: "POST",
     body: JSON.stringify({
@@ -224,6 +348,11 @@ try {
   const chatData = chat.body.data as {
     project?: { project_id: string; project_name: string; stage: string };
     state: { export_status: string };
+    agent_runtime: {
+      response_mode: string;
+      llm_configured: boolean;
+      fallback_reason: string | null;
+    };
     knowledge_hits: Array<{
       retrieval_method?: string;
       source_file?: string;
@@ -235,6 +364,9 @@ try {
   assert.equal(chatData.project?.project_name, "医院老机房改造一期");
   assert.equal(chatData.project?.stage, "solution_ready");
   assert.equal(chatData.state.export_status, "ready");
+  assert.equal(chatData.agent_runtime.response_mode, "fallback");
+  assert.equal(chatData.agent_runtime.llm_configured, false);
+  assert.equal(chatData.agent_runtime.fallback_reason, "not_configured");
   assert.ok(chatData.knowledge_hits.length > 0);
   assert.equal(chatData.knowledge_hits[0].retrieval_method, "hybrid");
   assert.ok(chatData.knowledge_hits[0].source_file);
@@ -244,15 +376,26 @@ try {
   const sessionSnapshot = await requestJson("/api/session?session_id=sess_smoke");
   assert.equal(sessionSnapshot.status, 200);
   const sessionSnapshotData = sessionSnapshot.body.data as {
-    session: { session_id: string; project_id: string | null; state_version: number };
+    session: {
+      session_id: string;
+      project_id: string | null;
+      state_version: number;
+      agent_runtime: {
+        response_mode: string;
+        fallback_reason: string | null;
+      } | null;
+    };
     project: { project_id: string; project_name: string; stage: string } | null;
   };
   assert.equal(sessionSnapshotData.session.session_id, "sess_smoke");
   assert.equal(sessionSnapshotData.session.project_id, projectId);
+  assert.equal(sessionSnapshotData.session.agent_runtime?.response_mode, "fallback");
+  assert.equal(sessionSnapshotData.session.agent_runtime?.fallback_reason, "not_configured");
   assert.equal(sessionSnapshotData.project?.project_id, projectId);
   assert.equal(sessionSnapshotData.project?.project_name, "医院老机房改造一期");
   assert.equal(sessionSnapshotData.project?.stage, "solution_ready");
   assert.deepEqual(Object.keys(sessionSnapshotData.session).sort(), [
+    "agent_runtime",
     "dashboard_fields",
     "export_status",
     "fsm_state",
@@ -272,7 +415,10 @@ try {
     (sessionSnapshotData.session as { payment_willingness_99_rmb?: unknown }).payment_willingness_99_rmb,
     undefined
   );
-  assert.equal((sessionSnapshotData.session as { export_payload_stale?: unknown }).export_payload_stale, undefined);
+  assert.equal(
+    (sessionSnapshotData.session as { export_payload_stale?: unknown }).export_payload_stale,
+    undefined
+  );
   assert.equal((sessionSnapshotData.session as { created_at?: unknown }).created_at, undefined);
   assert.equal((sessionSnapshotData.session as { updated_at?: unknown }).updated_at, undefined);
 
@@ -382,12 +528,14 @@ try {
 
   const promotedSession = await requestJson("/api/session?session_id=sess_stage_progress");
   assert.equal(promotedSession.status, 200);
-  const promotedSessionData = (promotedSession.body.data as {
-    session: {
-      export_status: string;
-      fsm_state: string;
-    };
-  }).session;
+  const promotedSessionData = (
+    promotedSession.body.data as {
+      session: {
+        export_status: string;
+        fsm_state: string;
+      };
+    }
+  ).session;
   assert.equal(promotedSessionData.export_status, "ready");
   assert.equal(promotedSessionData.fsm_state, "S3_READY_MONETIZATION");
 
@@ -452,6 +600,115 @@ try {
   );
   assert.equal(docx.body.subarray(0, 2).toString("utf8"), "PK");
 
+  const legacySnapshotSeed = getSessionSnapshot("sess_smoke");
+  saveSession({
+    session_id: "sess_legacy_recovery",
+    project_id: null,
+    state_version: 7,
+    fsm_state: "S1_CORE_EXTRACTION",
+    export_status: "draft",
+    dashboard_fields: legacySnapshotSeed.session.dashboard_fields,
+    triggered_risks: [
+      {
+        id: "RULE_FLOOR_LOADING",
+        legacy_id: "ERR_LOAD",
+        level: "P0_BLOCKER",
+        text: "Structural Loading Deficit Risk: room is above the first floor and UPS backup time is at least 120 minutes.",
+        blocking: true,
+        dismissible: false,
+        trigger_fields: ["room_floor", "ups_backup_time_minutes"]
+      },
+      {
+        id: "RULE_ELEVATOR_HEIGHT",
+        level: "P1_HIGH",
+        text: "Chassis Transport Risk: room is above the first floor; verify elevator, door opening, and turn radius.",
+        blocking: false,
+        dismissible: false,
+        trigger_fields: ["room_floor"]
+      }
+    ],
+    knowledge_hits: [],
+    suggestion: null,
+    agent_runtime: null,
+    payment_willingness_99_rmb: null,
+    export_payload_stale: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+
+  const restartedServer = await startExternalApiServer();
+  try {
+    const restartedProject = await fetch(`${restartedServer.baseUrl}/api/projects/${projectId}`);
+    assert.equal(restartedProject.status, 200);
+    const restartedProjectBody = (await restartedProject.json()) as {
+      data: { project: { project_id: string; project_name: string } };
+    };
+    assert.equal(restartedProjectBody.data.project.project_id, projectId);
+    assert.equal(restartedProjectBody.data.project.project_name, "医院老机房改造一期");
+
+    const restartedSession = await fetch(
+      `${restartedServer.baseUrl}/api/session?session_id=${encodeURIComponent("sess_smoke")}`
+    );
+    assert.equal(restartedSession.status, 200);
+    const restartedSessionBody = (await restartedSession.json()) as {
+      data: { session: { session_id: string; project_id: string | null } };
+    };
+    assert.equal(restartedSessionBody.data.session.session_id, "sess_smoke");
+    assert.equal(restartedSessionBody.data.session.project_id, projectId);
+
+    const restartedLegacySession = await fetch(
+      `${restartedServer.baseUrl}/api/session?session_id=${encodeURIComponent("sess_legacy_recovery")}`
+    );
+    assert.equal(restartedLegacySession.status, 200);
+    const restartedLegacySessionBody = (await restartedLegacySession.json()) as {
+      data: {
+        session: {
+          fsm_state: string;
+          export_status: string;
+          suggestion: { upsCapacityKva: number | null } | null;
+          triggered_risks: Array<{ id: string; text: string }>;
+        };
+      };
+    };
+    assert.equal(restartedLegacySessionBody.data.session.fsm_state, "S3_READY_MONETIZATION");
+    assert.equal(restartedLegacySessionBody.data.session.export_status, "ready");
+    assert.equal(restartedLegacySessionBody.data.session.suggestion?.upsCapacityKva, 60);
+    assert.equal(
+      restartedLegacySessionBody.data.session.triggered_risks[0]?.text,
+      "机房位于二层及以上，且 UPS 后备时间达到 120 分钟，需优先复核楼板承重、运输路线和加固方案。"
+    );
+    assert.ok(
+      restartedLegacySessionBody.data.session.triggered_risks.every(
+        (risk) =>
+          !risk.text.includes("Structural Loading Deficit Risk") &&
+          !risk.text.includes("Chassis Transport Risk")
+      )
+    );
+
+    const restartedDocx = await fetch(`${restartedServer.baseUrl}${formalData.asset.download_url}`);
+    assert.equal(restartedDocx.status, 200);
+    const restartedDocxBody = Buffer.from(await restartedDocx.arrayBuffer());
+    assert.equal(restartedDocxBody.subarray(0, 2).toString("utf8"), "PK");
+
+    const restartedKnowledgeStatus = await fetch(`${restartedServer.baseUrl}/api/admin/knowledge/status`);
+    assert.equal(restartedKnowledgeStatus.status, 200);
+    const restartedKnowledgeStatusBody = (await restartedKnowledgeStatus.json()) as {
+      data: {
+        uploaded_file_count: number;
+        pending_job_count: number;
+        last_uploaded_file: { original_file_name?: string } | null;
+        latest_job: { status: string; file_name: string } | null;
+      };
+    };
+    assert.ok(restartedKnowledgeStatusBody.data.uploaded_file_count >= 1);
+    assert.equal(restartedKnowledgeStatusBody.data.pending_job_count, 0);
+    assert.equal(restartedKnowledgeStatusBody.data.last_uploaded_file?.original_file_name, "验收资料.md");
+    assert.equal(restartedKnowledgeStatusBody.data.latest_job?.status, "completed");
+    assert.equal(restartedKnowledgeStatusBody.data.latest_job?.file_name, "验收资料.md");
+  } finally {
+    await restartedServer.close();
+  }
+
   const previousApiKey = process.env.OPENAI_API_KEY;
   const previousBaseUrl = process.env.OPENAI_BASE_URL;
   const previousModel = process.env.OPENAI_MODEL;
@@ -496,11 +753,19 @@ try {
       quick_replies: string[];
       updated_fields: Record<string, unknown>;
       field_patches: Array<{ field_code: string; new_value: unknown; source: string }>;
+      agent_runtime: {
+        response_mode: string;
+        model: string | null;
+        used_json_retry: boolean;
+      };
     };
     assert.ok(llmChatData.ai_response.startsWith("LLM售前回复"));
     assert.deepEqual(llmChatData.quick_replies, ["确认改造范围", "补充预算上限"]);
     assert.equal(llmChatData.updated_fields.project_type, "renovation");
     assert.equal(llmChatData.updated_fields.rack_count, 6);
+    assert.equal(llmChatData.agent_runtime.response_mode, "real_llm");
+    assert.equal(llmChatData.agent_runtime.model, "stub-model");
+    assert.equal(llmChatData.agent_runtime.used_json_retry, false);
     assert.equal(
       llmChatData.field_patches.find((patch) => patch.field_code === "project_type")?.source,
       "agent_inference"
@@ -508,6 +773,15 @@ try {
     assert.equal(llmChatData.field_patches.find((patch) => patch.field_code === "rack_count")?.new_value, 6);
     assert.equal(llmStub.requests[0].model, "stub-model");
     assert.deepEqual(llmStub.requests[0].response_format, { type: "json_object" });
+
+    const configuredRuntimeStatus = await requestJson("/api/admin/runtime/status");
+    assert.equal(configuredRuntimeStatus.status, 200);
+    const configuredRuntimeStatusData = configuredRuntimeStatus.body.data as {
+      agent: { llm_configured: boolean; model: string; base_url: string };
+    };
+    assert.equal(configuredRuntimeStatusData.agent.llm_configured, true);
+    assert.equal(configuredRuntimeStatusData.agent.model, "stub-model");
+    assert.equal(configuredRuntimeStatusData.agent.base_url, llmStub.baseUrl);
   } finally {
     await llmStub.close();
     process.env.OPENAI_API_KEY = previousApiKey;
@@ -541,7 +815,13 @@ try {
       })
     });
     assert.equal(retryChat.status, 200);
-    assert.equal((retryChat.body.data as { ai_response: string }).ai_response, "JSON mode retry worked.");
+    const retryChatData = retryChat.body.data as {
+      ai_response: string;
+      agent_runtime: { response_mode: string; used_json_retry: boolean };
+    };
+    assert.equal(retryChatData.ai_response, "JSON mode retry worked.");
+    assert.equal(retryChatData.agent_runtime.response_mode, "real_llm");
+    assert.equal(retryChatData.agent_runtime.used_json_retry, true);
     assert.equal(retryStub.requests.length, 2);
     assert.ok("response_format" in retryStub.requests[0]);
     assert.ok(!("response_format" in retryStub.requests[1]));
@@ -569,10 +849,21 @@ try {
       })
     });
     assert.equal(fallbackChat.status, 200);
+    const fallbackChatData = fallbackChat.body.data as {
+      ai_response: string;
+      agent_runtime: {
+        response_mode: string;
+        llm_configured: boolean;
+        fallback_reason: string | null;
+      };
+    };
     assert.equal(
-      (fallbackChat.body.data as { ai_response: string }).ai_response,
-      "已收到项目线索并同步到后端会话状态。当前已具备初步规模口径，可继续补充预算或触发导出意愿验证。"
+      fallbackChatData.ai_response,
+      "已收到项目线索，当前已经形成初步规模口径。接下来建议补充预算、品牌偏好或交付时间。"
     );
+    assert.equal(fallbackChatData.agent_runtime.response_mode, "fallback");
+    assert.equal(fallbackChatData.agent_runtime.llm_configured, true);
+    assert.equal(fallbackChatData.agent_runtime.fallback_reason, "invalid_json");
   } finally {
     await fallbackStub.close();
     process.env.OPENAI_API_KEY = previousApiKey;
@@ -583,4 +874,5 @@ try {
   console.log("API smoke test passed.");
 } finally {
   server.close();
+  rmSync(smokeRoot, { recursive: true, force: true });
 }

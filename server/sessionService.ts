@@ -1,4 +1,5 @@
 import type {
+  AgentRuntimeSummary,
   BackendSession,
   ChatRequest,
   ChatResponseData,
@@ -17,8 +18,9 @@ import type {
 } from "./types.js";
 import { buildExportPayload } from "./exportPayload.js";
 import { renderExportDocx } from "./exportDocument.js";
-import { generateAgentLlmOutput } from "./llmClient.js";
+import { generateAgentLlmResult } from "./llmClient.js";
 import { searchKnowledge } from "./localVectorSearch.js";
+import { countSessions, loadSession, logRetrievalAudit, saveSession } from "./persistence.js";
 import {
   buildProjectContext,
   getProject,
@@ -65,7 +67,7 @@ const riskFloorLoading: RiskFlag = {
   id: "RULE_FLOOR_LOADING",
   legacy_id: "ERR_LOAD",
   level: "P0_BLOCKER",
-  text: "Structural Loading Deficit Risk: room is above the first floor and UPS backup time is at least 120 minutes.",
+  text: "机房位于二层及以上，且 UPS 后备时间达到 120 分钟，需优先复核楼板承重、运输路线和加固方案。",
   blocking: true,
   dismissible: false,
   trigger_fields: ["room_floor", "ups_backup_time_minutes"]
@@ -74,7 +76,7 @@ const riskFloorLoading: RiskFlag = {
 const riskElevatorHeight: RiskFlag = {
   id: "RULE_ELEVATOR_HEIGHT",
   level: "P1_HIGH",
-  text: "Chassis Transport Risk: room is above the first floor; verify elevator, door opening, and turn radius.",
+  text: "二层及以上机房需核实电梯高度、门洞尺寸和转弯半径，必要时提前规划吊装与搬运方案。",
   blocking: false,
   dismissible: false,
   trigger_fields: ["room_floor"]
@@ -124,6 +126,10 @@ function cloneSuggestion(suggestion: BackendSession["suggestion"]) {
   return suggestion ? { ...suggestion } : null;
 }
 
+function cloneAgentRuntime(agentRuntime: AgentRuntimeSummary | null | undefined) {
+  return agentRuntime ? { ...agentRuntime } : null;
+}
+
 function toSessionSnapshotSession(session: BackendSession): SessionSnapshotSession {
   return {
     session_id: session.session_id,
@@ -134,7 +140,8 @@ function toSessionSnapshotSession(session: BackendSession): SessionSnapshotSessi
     dashboard_fields: cloneDashboardFields(session.dashboard_fields),
     triggered_risks: cloneTriggeredRisks(session.triggered_risks),
     knowledge_hits: cloneKnowledgeHits(session.knowledge_hits),
-    suggestion: cloneSuggestion(session.suggestion)
+    suggestion: cloneSuggestion(session.suggestion),
+    agent_runtime: cloneAgentRuntime(session.agent_runtime)
   };
 }
 
@@ -199,14 +206,31 @@ function loadOrCreateSession(sessionId: string, projectId: string | null = null)
   if (projectId && !getProject(projectId)) {
     throw projectNotFoundError();
   }
-  const existing = sessions.get(sessionId);
+  let existing = sessions.get(sessionId);
+  if (!existing) {
+    const persisted = loadSession(sessionId);
+    if (persisted) {
+      const normalized = reconcileDerivedSessionState(persisted);
+      sessions.set(sessionId, persisted);
+      existing = persisted;
+      if (normalized) {
+        saveSession(existing);
+      }
+    }
+  }
   if (existing) {
+    const normalized = reconcileDerivedSessionState(existing);
     if (existing.project_id && projectId && existing.project_id !== projectId) {
       throw projectSessionBoundError();
     }
     if (!existing.project_id && projectId) {
       existing.project_id = projectId;
       linkSessionToProject(projectId, existing.session_id);
+      existing.updated_at = now();
+      saveSession(existing);
+    }
+    if (normalized) {
+      saveSession(existing);
     }
     if (existing.project_id && projectId === null) {
       return existing;
@@ -223,6 +247,7 @@ function loadOrCreateSession(sessionId: string, projectId: string | null = null)
     triggered_risks: [],
     knowledge_hits: [],
     suggestion: null,
+    agent_runtime: null,
     payment_willingness_99_rmb: null,
     export_payload_stale: false,
     created_at: now(),
@@ -230,6 +255,7 @@ function loadOrCreateSession(sessionId: string, projectId: string | null = null)
   };
   sessions.set(sessionId, session);
   if (projectId) linkSessionToProject(projectId, sessionId);
+  saveSession(session);
   return session;
 }
 
@@ -318,13 +344,18 @@ function buildSuggestion(rackCount: number, stale = false): SuggestionSummary {
   };
 }
 
+function buildSuggestionForSession(session: BackendSession) {
+  const rackCount = Number(session.dashboard_fields.rack_count?.value || 0);
+  return rackCount ? buildSuggestion(rackCount, Boolean(session.export_payload_stale)) : null;
+}
+
 function evaluateRisks(session: BackendSession) {
   const floor = Number(session.dashboard_fields.room_floor?.value ?? 0);
   const backup = Number(session.dashboard_fields.ups_backup_time_minutes?.value ?? 0);
   const risks: RiskFlag[] = [];
   if (floor >= 2 && backup >= 120) risks.push(riskFloorLoading);
   if (floor >= 2) risks.push(riskElevatorHeight);
-  session.triggered_risks = risks;
+  return risks;
 }
 
 function inferState(session: BackendSession): { fsm_state: FsmState; export_status: ExportStatus } {
@@ -336,15 +367,52 @@ function inferState(session: BackendSession): { fsm_state: FsmState; export_stat
   return { fsm_state: "S1_CORE_EXTRACTION", export_status: "draft" };
 }
 
+function signature(value: unknown) {
+  return JSON.stringify(value);
+}
+
+function reconcileDerivedSessionState(session: BackendSession) {
+  let changed = false;
+
+  if (typeof session.export_payload_stale !== "boolean") {
+    session.export_payload_stale = false;
+    changed = true;
+  }
+
+  const nextSuggestion = buildSuggestionForSession(session);
+  if (signature(session.suggestion) !== signature(nextSuggestion)) {
+    session.suggestion = nextSuggestion;
+    changed = true;
+  }
+
+  const nextRisks = evaluateRisks(session);
+  if (signature(session.triggered_risks) !== signature(nextRisks)) {
+    session.triggered_risks = nextRisks;
+    changed = true;
+  }
+
+  const inferredState = inferState(session);
+  if (session.fsm_state !== inferredState.fsm_state) {
+    session.fsm_state = inferredState.fsm_state;
+    changed = true;
+  }
+
+  const nextExportStatus = session.export_status === "exported" ? "exported" : inferredState.export_status;
+  if (session.export_status !== nextExportStatus) {
+    session.export_status = nextExportStatus;
+    changed = true;
+  }
+
+  return changed;
+}
+
 function fallbackAgentResponse(session: BackendSession) {
   const hasScale = Boolean(session.dashboard_fields.rack_count?.value);
   return {
     aiResponse: hasScale
-      ? "已收到项目线索并同步到后端会话状态。当前已具备初步规模口径，可继续补充预算或触发导出意愿验证。"
-      : "已收到项目线索并同步到后端会话状态。现在还差一个最影响报价的规模口径：大概多少机柜或服务器？",
-    quickReplies: hasScale
-      ? ["生成Word需求表", "补充项目预算"]
-      : ["计划放置 10 个标准机柜", "不确定，按面积估算"]
+      ? "已收到项目线索，当前已经形成初步规模口径。接下来建议补充预算、品牌偏好或交付时间。"
+      : "已收到项目线索。现在还差一个最影响方案和报价的规模口径：大概多少机柜或服务器？",
+    quickReplies: hasScale ? ["整理交付稿", "补充项目预算"] : ["计划放置 10 个标准机柜", "不确定，按面积估算"]
   };
 }
 
@@ -424,37 +492,36 @@ export async function postSessionChat(request: ChatRequest) {
     patches.push(makePatch(session, "budget_range_high_rmb", budgetWan * 10000, "user_message", 0.85));
 
   session.knowledge_hits = knowledgeHits;
-  session.suggestion = Number(session.dashboard_fields.rack_count?.value || 0)
-    ? buildSuggestion(Number(session.dashboard_fields.rack_count?.value || 0))
-    : null;
-  evaluateRisks(session);
+  logRetrievalAudit(session.session_id, text, knowledgeHits);
+  reconcileDerivedSessionState(session);
 
   const fallback = fallbackAgentResponse(session);
-  const llmOutput = await generateAgentLlmOutput({
+  const llmResult = await generateAgentLlmResult({
     userText: text,
     session,
     patches,
     knowledgeHits,
     risks: session.triggered_risks
   });
-  const llmPatches = llmOutput ? applyAgentFieldCandidates(session, llmOutput.field_candidates) : [];
+  session.agent_runtime = cloneAgentRuntime(llmResult.runtime);
+  const llmPatches = llmResult.output
+    ? applyAgentFieldCandidates(session, llmResult.output.field_candidates)
+    : [];
   patches.push(...llmPatches);
 
-  const finalRackCount = Number(session.dashboard_fields.rack_count?.value || 0);
-  session.suggestion = finalRackCount ? buildSuggestion(finalRackCount) : null;
-  evaluateRisks(session);
-  const state = inferState(session);
-  session.fsm_state = state.fsm_state;
-  session.export_status = state.export_status;
+  reconcileDerivedSessionState(session);
   session.state_version += 1;
   session.updated_at = now();
   if (session.project_id) {
     syncProjectFromSession(session.project_id, session);
   }
+  saveSession(session);
 
   const data: ChatResponseData = {
-    ai_response: llmOutput?.ai_response ?? fallback.aiResponse,
-    quick_replies: llmOutput?.quick_replies.length ? llmOutput.quick_replies : fallback.quickReplies,
+    ai_response: llmResult.output?.ai_response ?? fallback.aiResponse,
+    quick_replies: llmResult.output?.quick_replies.length
+      ? llmResult.output.quick_replies
+      : fallback.quickReplies,
     updated_fields: Object.fromEntries(patches.map((patch) => [patch.field_code, patch.new_value])),
     field_patches: patches,
     triggered_risks: session.triggered_risks,
@@ -465,7 +532,8 @@ export async function postSessionChat(request: ChatRequest) {
       export_status: session.export_status,
       calculation_status: "provisional"
     },
-    suggestion: session.suggestion
+    suggestion: session.suggestion,
+    agent_runtime: cloneAgentRuntime(session.agent_runtime) ?? llmResult.runtime
   };
 
   return response(session, data);
@@ -490,18 +558,15 @@ export function postSessionOverride(request: OverrideRequest) {
   }
 
   makePatch(session, request.field_code, normalizedValue, "dashboard_edit", 1, false);
-  const rackCount = Number(session.dashboard_fields.rack_count?.value || 10);
-  session.suggestion = buildSuggestion(rackCount, true);
   session.export_payload_stale = true;
-  evaluateRisks(session);
-  const state = inferState(session);
-  session.fsm_state = state.fsm_state;
-  session.export_status = state.export_status;
+  reconcileDerivedSessionState(session);
   session.state_version += 1;
   session.updated_at = now();
   if (session.project_id) {
     syncProjectFromSession(session.project_id, session);
   }
+  saveSession(session);
+  const fieldLabel = session.dashboard_fields[request.field_code]?.label ?? request.field_code;
 
   const data: OverrideResponseData = {
     sync_status: "synced",
@@ -514,9 +579,9 @@ export function postSessionOverride(request: OverrideRequest) {
     llm_context_injection_id: `ctxinj_${Date.now()}`,
     export_payload_stale: true,
     recomputed_outputs: {
-      total_it_load_kw: rackCount * 3,
-      recommended_ups_capacity_kva: session.suggestion.upsCapacityKva,
-      recommended_precision_ac_model_kw: session.suggestion.coolingModelKw
+      total_it_load_kw: Number(session.dashboard_fields.rack_count?.value || 0) * 3,
+      recommended_ups_capacity_kva: session.suggestion?.upsCapacityKva ?? null,
+      recommended_precision_ac_model_kw: session.suggestion?.coolingModelKw ?? null
     },
     triggered_risks: session.triggered_risks,
     agent_silent_event: {
@@ -525,7 +590,7 @@ export function postSessionOverride(request: OverrideRequest) {
       old_value: oldValue,
       new_value: normalizedValue
     },
-    ai_notice: `已将 ${request.field_code} 手动修正为 ${request.value}，并同步到后端会话上下文。`,
+    ai_notice: `已更新「${fieldLabel}」，并同步到项目资料。`,
     suggestion: session.suggestion
   };
 
@@ -552,7 +617,7 @@ export function getSessionExport(params: {
         server_time: now(),
         error: {
           code: "PAYMENT_REQUIRED",
-          message: "99 RMB payment willingness verification is required before final docx export.",
+          message: "Confirmation is required before final docx export.",
           retryable: true
         },
         billing_check: {
@@ -561,8 +626,8 @@ export function getSessionExport(params: {
           currency: "CNY",
           status: "payment_required",
           actions: [
-            { id: "pay_99_rmb", label: "愿意，生成正式版" },
-            { id: "free_preview", label: "先预览免费版" },
+            { id: "pay_99_rmb", label: "继续整理正式稿" },
+            { id: "free_preview", label: "先看预览稿" },
             { id: "cancel", label: "暂时不用" }
           ]
         }
@@ -581,6 +646,7 @@ export function getSessionExport(params: {
     export_type: isPreview ? "preview_pdf" : "docx_requirement_sheet"
   });
   const renderedDocument = isPreview ? null : renderExportDocx(exportPayload);
+  saveSession(session);
 
   const data: ExportResponseData = {
     export_status: isPreview ? "preview_ready" : "ready",
@@ -619,10 +685,14 @@ export function getSessionExport(params: {
 }
 
 export function getSessionSnapshot(sessionId: string) {
-  const session = sessions.get(sessionId);
+  const session = sessions.get(sessionId) ?? loadSession(sessionId);
   if (!session) {
     throw sessionNotFoundError();
   }
+  if (reconcileDerivedSessionState(session)) {
+    saveSession(session);
+  }
+  sessions.set(sessionId, session);
   const project = session.project_id ? getProject(session.project_id) : null;
   return {
     session: toSessionSnapshotSession(session),
@@ -637,7 +707,7 @@ export function getSessionSnapshot(sessionId: string) {
 }
 
 export function getSessionCount() {
-  return sessions.size;
+  return countSessions();
 }
 
 export class ApiValidationError extends Error {

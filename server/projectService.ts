@@ -7,6 +7,7 @@ import type {
   ProjectStage,
   ProjectSummary
 } from "./types.js";
+import { loadProject, loadProjects, saveProject } from "./persistence.js";
 
 const projects = new Map<string, BackendProject>();
 
@@ -50,17 +51,30 @@ export function createProject(name?: string) {
     dashboard_snapshot: {}
   };
   projects.set(project.project_id, project);
+  saveProject(project);
   return cloneProject(project);
 }
 
 export function listProjects() {
+  if (projects.size === 0) {
+    for (const project of loadProjects()) {
+      projects.set(project.project_id, project);
+    }
+  }
   return Array.from(projects.values())
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
     .map(toSummary);
 }
 
 export function getProject(projectId: string) {
-  const project = projects.get(projectId);
+  let project = projects.get(projectId);
+  if (!project) {
+    const persisted = loadProject(projectId);
+    if (persisted) {
+      projects.set(projectId, persisted);
+      project = persisted;
+    }
+  }
   return project ? cloneProject(project) : null;
 }
 
@@ -80,6 +94,7 @@ export function linkSessionToProject(projectId: string, sessionId: string) {
   if (!project) return null;
   project.primary_session_id = sessionId;
   project.updated_at = now();
+  saveProject(project);
   return project;
 }
 
@@ -90,6 +105,7 @@ export function syncProjectFromSession(projectId: string, session: BackendSessio
   project.stage = stageFromSession(session);
   project.dashboard_snapshot = cloneFields(session.dashboard_fields);
   project.updated_at = now();
+  saveProject(project);
   return project;
 }
 

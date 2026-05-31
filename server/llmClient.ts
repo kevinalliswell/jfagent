@@ -1,4 +1,12 @@
-import type { BackendSession, FieldPatch, KnowledgeHit, RiskFlag } from "./types.js";
+import type {
+  AdminRuntimeStatus,
+  AgentFallbackReason,
+  AgentRuntimeSummary,
+  BackendSession,
+  FieldPatch,
+  KnowledgeHit,
+  RiskFlag
+} from "./types.js";
 
 interface LlmFieldCandidate {
   field_code?: unknown;
@@ -39,6 +47,11 @@ export interface AgentLlmContext {
   risks: RiskFlag[];
 }
 
+export interface AgentLlmResult {
+  output: AgentLlmOutput | null;
+  runtime: AgentRuntimeSummary;
+}
+
 const defaultBaseUrl = "https://api.openai.com/v1";
 const defaultModel = "gpt-4o-mini";
 const defaultTimeoutMs = 12000;
@@ -58,6 +71,16 @@ function model() {
 function timeoutMs() {
   const configured = Number(process.env.OPENAI_TIMEOUT_MS ?? defaultTimeoutMs);
   return Number.isFinite(configured) && configured > 0 ? configured : defaultTimeoutMs;
+}
+
+export function getAgentRuntimeStatus(): AdminRuntimeStatus["agent"] {
+  return {
+    llm_configured: enabled(),
+    provider_name: "openai_compatible",
+    base_url: baseUrl(),
+    model: model(),
+    timeout_ms: timeoutMs()
+  };
 }
 
 function chatCompletionsUrl() {
@@ -250,22 +273,112 @@ class OpenAiCompatibleError extends Error {
   }
 }
 
-export async function generateAgentLlmOutput(context: AgentLlmContext): Promise<AgentLlmOutput | null> {
-  if (!enabled()) return null;
+function runtimeSummary(
+  patch: Partial<
+    Pick<AgentRuntimeSummary, "response_mode" | "used_json_retry" | "fallback_reason" | "fallback_message">
+  >
+): AgentRuntimeSummary {
+  const config = getAgentRuntimeStatus();
+  return {
+    response_mode: patch.response_mode ?? "fallback",
+    llm_configured: config.llm_configured,
+    provider_name: config.provider_name,
+    model: config.model,
+    base_url: config.base_url,
+    used_json_retry: patch.used_json_retry ?? false,
+    fallback_reason: patch.fallback_reason ?? null,
+    fallback_message: patch.fallback_message ?? null,
+    responded_at: new Date().toISOString()
+  };
+}
+
+function runtimeFailure(
+  reason: AgentFallbackReason,
+  message: string | null,
+  usedJsonRetry = false
+): AgentLlmResult {
+  return {
+    output: null,
+    runtime: runtimeSummary({
+      response_mode: "fallback",
+      used_json_retry: usedJsonRetry,
+      fallback_reason: reason,
+      fallback_message: message
+    })
+  };
+}
+
+function runtimeSuccess(output: AgentLlmOutput, usedJsonRetry = false): AgentLlmResult {
+  return {
+    output,
+    runtime: runtimeSummary({
+      response_mode: "real_llm",
+      used_json_retry: usedJsonRetry
+    })
+  };
+}
+
+function errorToFallbackReason(error: unknown): {
+  reason: AgentFallbackReason;
+  message: string | null;
+} {
+  if (error instanceof OpenAiCompatibleError) {
+    return {
+      reason: "provider_error",
+      message: `HTTP ${error.status}: ${error.body.slice(0, 240)}`
+    };
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return {
+      reason: "timeout",
+      message: "OpenAI-compatible request timed out."
+    };
+  }
+  if (error instanceof Error) {
+    return {
+      reason: "unknown",
+      message: error.message
+    };
+  }
+  return {
+    reason: "unknown",
+    message: null
+  };
+}
+
+export async function generateAgentLlmResult(context: AgentLlmContext): Promise<AgentLlmResult> {
+  if (!enabled()) {
+    return runtimeFailure("not_configured", "OPENAI_API_KEY is not configured.");
+  }
   const messages = promptForAgent(context);
 
   try {
     const firstResponse = await postChatCompletion(messages, true);
-    return parseAgentOutput(firstMessageContent(firstResponse));
+    const parsed = parseAgentOutput(firstMessageContent(firstResponse));
+    return parsed
+      ? runtimeSuccess(parsed)
+      : runtimeFailure(
+          "invalid_json",
+          "Provider returned content that could not be parsed as the required JSON shape."
+        );
   } catch (error) {
     if (error instanceof OpenAiCompatibleError && isJsonModeUnsupported(error.status, error.body)) {
       try {
         const retryResponse = await postChatCompletion(messages, false);
-        return parseAgentOutput(firstMessageContent(retryResponse));
-      } catch {
-        return null;
+        const parsed = parseAgentOutput(firstMessageContent(retryResponse));
+        return parsed
+          ? runtimeSuccess(parsed, true)
+          : runtimeFailure(
+              "invalid_json",
+              "Provider returned content after JSON-mode retry, but it still could not be parsed.",
+              true
+            );
+      } catch (retryError) {
+        const failure = errorToFallbackReason(retryError);
+        return runtimeFailure(failure.reason, failure.message, true);
       }
     }
-    return null;
+    const failure = errorToFallbackReason(error);
+    return runtimeFailure(failure.reason, failure.message);
   }
 }

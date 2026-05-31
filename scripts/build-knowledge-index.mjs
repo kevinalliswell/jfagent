@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 
 const root = process.cwd();
 const knowledgeDir = path.join(root, "knowledge");
+const configuredUploadDir = process.env.JFAGENT_UPLOAD_DIR?.trim();
+const uploadDir = configuredUploadDir ? path.resolve(configuredUploadDir) : path.join(knowledgeDir, "uploads");
 const frontendOutputFile = path.join(root, "src", "generatedKnowledge.ts");
 const backendOutputFile = path.join(root, "server", "generatedKnowledge.ts");
 const backendRuntimeOutputFile = path.join(root, "server", "generatedKnowledge.json");
@@ -80,6 +82,18 @@ async function walk(dir) {
     })
   );
   return files.flat();
+}
+
+function isWithin(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function logicalSourcePath(filePath) {
+  if (isWithin(uploadDir, filePath)) {
+    return path.posix.join("knowledge", "uploads", path.relative(uploadDir, filePath).split(path.sep).join("/"));
+  }
+  return path.relative(root, filePath).split(path.sep).join("/");
 }
 
 async function readKnowledgeText(filePath) {
@@ -259,6 +273,7 @@ function makeId(relativePath, index) {
 
 const knowledgeFiles = [
   ...(await walk(knowledgeDir)),
+  ...(isWithin(knowledgeDir, uploadDir) ? [] : await walk(uploadDir)),
   ...(
     await Promise.all(
       topLevelSeeds.map(async (name) => {
@@ -271,7 +286,7 @@ const knowledgeFiles = [
 
 const chunks = [];
 for (const filePath of knowledgeFiles) {
-  const relativePath = path.relative(root, filePath);
+  const relativePath = logicalSourcePath(filePath);
   let rawText = "";
   try {
     rawText = await readKnowledgeText(filePath);

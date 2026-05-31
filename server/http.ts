@@ -12,7 +12,9 @@ import type { CreateProjectRequest, ErrorEnvelope } from "./types.js";
 import { createReadStream } from "node:fs";
 import { getRenderedAsset } from "./exportDocument.js";
 import { getKnowledgeAdminStatus, postKnowledgeUpload } from "./knowledgeAdmin.js";
+import { getAgentRuntimeStatus } from "./llmClient.js";
 import { createProject, getProject, listProjects } from "./projectService.js";
+import { getDatabasePath, getKnowledgeUploadDir, getOutputDir } from "./runtimePaths.js";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -131,6 +133,22 @@ async function route(request: IncomingMessage, response: ServerResponse) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/admin/runtime/status") {
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: {
+          agent: getAgentRuntimeStatus(),
+          storage: {
+            database_path: getDatabasePath(),
+            upload_dir: getKnowledgeUploadDir(),
+            output_dir: getOutputDir()
+          }
+        }
+      });
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/api/admin/knowledge/upload") {
       const body = await readJsonBody(request, 30 * 1024 * 1024);
       sendJson(response, 200, {
@@ -170,13 +188,7 @@ async function route(request: IncomingMessage, response: ServerResponse) {
     if (request.method === "GET" && projectMatch) {
       const project = getProject(projectMatch[1]);
       if (!project) {
-        sendError(
-          response,
-          requestId,
-          404,
-          "PROJECT_NOT_FOUND",
-          "The requested project does not exist."
-        );
+        sendError(response, requestId, 404, "PROJECT_NOT_FOUND", "The requested project does not exist.");
         return;
       }
       sendJson(response, 200, {

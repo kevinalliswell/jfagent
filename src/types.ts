@@ -15,6 +15,13 @@ export type RiskLevel = "P0_BLOCKER" | "P1_HIGH" | "P2_MEDIUM" | "P3_LOW";
 export type FsmState = "S0_IDLE" | "S1_CORE_EXTRACTION" | "S2_PROACTIVE_INQUIRIES" | "S3_READY_MONETIZATION";
 
 export type ExportStatus = "draft" | "ready" | "exported";
+export type AgentResponseMode = "real_llm" | "fallback";
+export type AgentFallbackReason =
+  | "not_configured"
+  | "timeout"
+  | "provider_error"
+  | "invalid_json"
+  | "unknown";
 
 export interface ChatMessage {
   id: string;
@@ -63,6 +70,18 @@ export interface SuggestionSummary {
   stale: boolean;
 }
 
+export interface AgentRuntimeSummary {
+  response_mode: AgentResponseMode;
+  llm_configured: boolean;
+  provider_name: "openai_compatible" | "mock";
+  model: string | null;
+  base_url: string | null;
+  used_json_retry: boolean;
+  fallback_reason: AgentFallbackReason | null;
+  fallback_message: string | null;
+  responded_at: string;
+}
+
 export interface KnowledgeHit {
   id: string;
   title: string;
@@ -76,7 +95,7 @@ export interface KnowledgeHit {
 }
 
 export interface KnowledgeIndexStatus {
-  rebuild_status: "idle" | "rebuilding";
+  rebuild_status: "idle" | "queued" | "rebuilding" | "failed";
   index: {
     generated_at: string;
     local_embedding_model: string;
@@ -85,6 +104,7 @@ export interface KnowledgeIndexStatus {
     index_file: string;
   };
   last_uploaded_file: {
+    upload_id?: string;
     original_file_name?: string;
     stored_file_name: string;
     stored_path: string;
@@ -92,10 +112,45 @@ export interface KnowledgeIndexStatus {
     uploaded_at: string;
   } | null;
   uploaded_file_count: number;
+  pending_job_count: number;
+  active_job: {
+    job_id: string;
+    file_name: string;
+    status: "queued" | "rebuilding" | "completed" | "failed";
+    requested_at: string;
+    started_at: string | null;
+    finished_at: string | null;
+    error: string | null;
+  } | null;
+  latest_job: {
+    job_id: string;
+    file_name: string;
+    status: "queued" | "rebuilding" | "completed" | "failed";
+    requested_at: string;
+    started_at: string | null;
+    finished_at: string | null;
+    error: string | null;
+  } | null;
+}
+
+export interface AdminRuntimeStatus {
+  agent: {
+    llm_configured: boolean;
+    provider_name: "openai_compatible";
+    base_url: string;
+    model: string;
+    timeout_ms: number;
+  };
+  storage: {
+    database_path: string;
+    upload_dir: string;
+    output_dir: string;
+  };
 }
 
 export interface KnowledgeUploadResponseData {
   uploaded_file: {
+    upload_id?: string;
     original_file_name: string;
     stored_file_name: string;
     stored_path: string;
@@ -104,6 +159,7 @@ export interface KnowledgeUploadResponseData {
   };
   index: KnowledgeIndexStatus["index"];
   rebuild_status: "completed";
+  job: NonNullable<KnowledgeIndexStatus["active_job"]>;
 }
 
 export interface ExportAsset {
@@ -173,6 +229,7 @@ export interface SessionSnapshotData {
     triggered_risks: RiskFlag[];
     knowledge_hits: KnowledgeHit[];
     suggestion: SuggestionSummary | null;
+    agent_runtime: AgentRuntimeSummary | null;
   };
   project: ProjectContext | null;
 }
@@ -191,6 +248,7 @@ export interface SessionSnapshot {
   knowledge_hits: KnowledgeHit[];
   export_asset: ExportAsset | null;
   project: ProjectContext | null;
+  agent_runtime: AgentRuntimeSummary | null;
 }
 
 export interface ChatResponseData {
@@ -207,6 +265,7 @@ export interface ChatResponseData {
     calculation_status: "confirmed" | "provisional" | "blocked";
   };
   suggestion: SuggestionSummary | null;
+  agent_runtime: AgentRuntimeSummary;
 }
 
 export interface SuccessEnvelope<T> {

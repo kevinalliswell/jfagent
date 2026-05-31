@@ -336,3 +336,98 @@ Consequences:
 - If no key is configured, the platform rejects JSON mode, the call times out, or the model returns invalid JSON, the API still returns the current rule/mock behavior.
 - The first version avoids streaming, tools/function calling, Responses API, and strict JSON schema to maximize third-party relay compatibility.
 - Secrets stay in runtime `.env.api`, not in GHCR images.
+
+## D-019: Persist Backend Runtime State In SQLite Before SaaS Database Work
+
+Status: accepted.
+
+Decision:
+
+Keep the current built-in Node HTTP server and local-first MVP flow, but move backend runtime state from pure in-memory storage to a local SQLite file at `data/jfagent.sqlite`. Persist session snapshots, backend project records, generated export asset metadata, knowledge upload metadata, and upload job status there. Keep in-process Maps only as read caches.
+
+Reason:
+
+The project now needs restart-safe backend behavior for local testing, seed deployment, and future SaaS evolution, but it is still too early to introduce a larger database stack or ORM. SQLite gives the backend a durable source of truth with minimal new complexity and keeps TypeScript contracts intact.
+
+Consequences:
+
+- `server/sessionService.ts`, `server/projectService.ts`, `server/exportDocument.ts`, and `server/knowledgeAdmin.ts` now read/write through `server/persistence.ts`.
+- Generated `.docx` download links can recover after API restart as long as the output file still exists on disk.
+- Smoke coverage now includes cross-process restart recovery for project lookup, session snapshot lookup, and asset download.
+- Project data is persistent, but frontend mock mode remains unchanged.
+- This is still not the final SaaS storage model; tenant isolation, user auth, migrations, and remote backup remain future work.
+
+## D-020: Small-Scale Paid Pilot Uses One External Sample Customer Plus Deep Internal Usage
+
+Status: accepted.
+
+Decision:
+
+Treat the next closure target as `1 external paid sample customer + internal daily use by the team`, rather than broader external rollout or internal-only validation.
+
+Reason:
+
+The current repository is already beyond a toy demo: it has backend project/session continuity, knowledge upload, DOCX export, and a real-agent path. The highest-value next step is to prove repeatable delivery quality with one real external sample while letting internal users build muscle on daily usage.
+
+Consequences:
+
+- The repo should optimize for pilot stability and explainability before broader SaaS scope.
+- Real payment, auth, and multi-tenant architecture remain out of scope for this closure.
+- Documentation and task prioritization should speak in terms of paid-pilot readiness, not only raw feature completion.
+
+## D-021: Paid Pilot Requires Visible Agent Runtime Mode
+
+Status: accepted.
+
+Decision:
+
+Expose whether the latest backend answer used the real OpenAI-compatible LLM path or deterministic fallback, and surface current model/runtime configuration to admins.
+
+Reason:
+
+Without runtime visibility, the pilot team cannot reliably tell whether they are evaluating the real agent or silent fallback behavior. That creates ambiguity during external delivery, internal learning, and provider troubleshooting.
+
+Consequences:
+
+- `POST /api/session/chat` and `GET /api/session` should carry an `agent_runtime` summary.
+- Backend admin routes should expose current model configuration and runtime paths.
+- The frontend should show a quiet runtime-status banner in backend mode and a runtime status block in admin mode.
+- Smoke coverage should verify fallback, retry, and successful real-model behavior through the new runtime metadata.
+
+## D-022: Main Workstation Hides Explicit Payment Copy While Keeping Backend Willingness Validation
+
+Status: accepted.
+
+Decision:
+
+In Presales Workstation V2, the main frontend workstation should not display obvious payment wording or the `99 RMB` price point in its default project cockpit UI. The backend export flow still keeps the payment-willingness validation logic and gating behavior already defined by the product.
+
+Reason:
+
+The V2 workstation is now optimized for presales execution by engineers, bosses, and internal collaborators. The first screen should communicate project progress, risk, evidence, and delivery readiness, not pricing friction. Hiding explicit payment copy in the main cockpit reduces distraction during internal and pilot use while preserving the underlying business-validation mechanism when users reach the formal export path.
+
+Consequences:
+
+- The first viewport and main action surfaces should read as a presales cockpit, not a payment funnel.
+- Product and UI copy should avoid prominent `99 RMB` or similar payment-language exposure in the normal workstation flow.
+- Backend export approval can continue to record willingness state and enforce the existing gate.
+- This refines presentation, not business logic: real payment integration remains out of scope under D-004.
+
+## D-023: Reloaded Sessions Must Rebuild Derived State From Dashboard Fields
+
+Status: accepted.
+
+Decision:
+
+When the backend reloads a persisted session from SQLite, it should recompute suggestion, triggered risks, and FSM-derived progress state from the stored dashboard fields before returning that snapshot to the frontend.
+
+Reason:
+
+The workstation now treats dashboard fields as the highest-value durable project record, while suggestion/risk/progress are derived outputs that can evolve as product semantics change. Replaying old derived values verbatim causes the V2 product UI to surface stale wording and outdated cockpit signals after upgrades or restarts.
+
+Consequences:
+
+- `server/sessionService.ts` owns a reconciliation step for persisted sessions.
+- Legacy persisted risk text cannot leak back into the normal workstation if the rule definitions change.
+- Session reloads remain compatible across product iterations without forcing a manual database wipe.
+- This does not change the precedence model: dashboard fields remain the authority, and derived outputs follow them.

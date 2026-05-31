@@ -1,4 +1,5 @@
 import type {
+  AgentRuntimeSummary,
   ChatResponseData,
   DashboardField,
   ExportResponseData,
@@ -19,6 +20,18 @@ import { searchKnowledge } from "./localVectorSearch";
 
 const now = () => new Date().toISOString();
 const wait = (ms = 420) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const mockAgentRuntime: AgentRuntimeSummary = {
+  response_mode: "fallback",
+  llm_configured: false,
+  provider_name: "mock",
+  model: null,
+  base_url: null,
+  used_json_retry: false,
+  fallback_reason: "not_configured",
+  fallback_message: "当前为本地演示模式，尚未连接模型服务。",
+  responded_at: now()
+};
 
 const field = (
   code: string,
@@ -71,7 +84,7 @@ export const initialSession: SessionSnapshot = {
     {
       id: "msg_welcome",
       sender: "ai",
-      text: "没事，先把机房项目线索丢给我。我会按本地知识库先整理需求表预览，确认有价值后再走99元正式Word导出。",
+      text: "没事，先把机房项目线索丢给我。我会先按本地知识库整理需求预览，再根据完整度、风险和资料依据推进正式交付稿。",
       timestamp: now()
     }
   ],
@@ -91,6 +104,7 @@ export const initialSession: SessionSnapshot = {
   suggestion: null,
   knowledge_hits: searchKnowledge("机房 UPS 精密空调 需求表", 3),
   export_asset: null,
+  agent_runtime: { ...mockAgentRuntime },
   project: {
     project_id: "proj_seed_hospital",
     project_name: "某市人民医院机房建设项目",
@@ -102,7 +116,7 @@ const riskFloorLoading: RiskFlag = {
   id: "RULE_FLOOR_LOADING",
   legacy_id: "ERR_LOAD",
   level: "P0_BLOCKER",
-  text: "Structural Loading Deficit Risk：机房位于二层及以上，且UPS后备时间达到120分钟，必须复核楼板承重并强制纳入 Steel Structure Load加固 章节。",
+  text: "机房位于二层及以上，且 UPS 后备时间达到 120 分钟，需优先复核楼板承重、运输路线和加固方案。",
   blocking: true,
   dismissible: false,
   trigger_fields: ["room_floor", "ups_backup_time_minutes"]
@@ -111,7 +125,7 @@ const riskFloorLoading: RiskFlag = {
 const riskElevatorHeight: RiskFlag = {
   id: "RULE_ELEVATOR_HEIGHT",
   level: "P1_HIGH",
-  text: "Chassis Transport Risk：二层及以上机房需核实电梯高度、门洞和转弯半径，2米级精密空调可能需要预留吊装预算。",
+  text: "二层及以上机房需核实电梯高度、门洞尺寸和转弯半径，必要时提前规划吊装与搬运方案。",
   blocking: false,
   dismissible: false,
   trigger_fields: ["room_floor"]
@@ -120,7 +134,7 @@ const riskElevatorHeight: RiskFlag = {
 const riskBudgetMismatch: RiskFlag = {
   id: "RULE_BUDGET_MISMATCH",
   level: "P1_HIGH",
-  text: "Budget Mismatch Risk：当前预算可能低于设备BOM与施工综合成本安全线，建议输出可靠性优先和预算优先两档方案。",
+  text: "当前预算可能低于设备与施工综合成本安全线，建议同时准备可靠性优先和预算优先两档方案。",
   blocking: false,
   dismissible: false,
   trigger_fields: ["budget_range_high_rmb"]
@@ -247,6 +261,10 @@ function cloneSuggestion(suggestion: SessionSnapshot["suggestion"]) {
   return suggestion ? { ...suggestion } : null;
 }
 
+function cloneAgentRuntime(agentRuntime: AgentRuntimeSummary | null) {
+  return agentRuntime ? { ...agentRuntime } : null;
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   await wait(120);
   return mockProjects
@@ -271,7 +289,7 @@ export async function createProject(name?: string): Promise<ProjectSummary> {
 export async function getSessionSnapshot(sessionId: string): Promise<SessionSnapshotData> {
   await wait(120);
   if (sessionId !== initialSession.session_id) {
-    throw new Error("模拟项目还没有可恢复的会话快照。");
+    throw new Error("当前示例项目还没有可恢复的项目资料。");
   }
 
   return {
@@ -284,7 +302,8 @@ export async function getSessionSnapshot(sessionId: string): Promise<SessionSnap
       dashboard_fields: cloneDashboardFields(initialSession.dashboard_fields),
       triggered_risks: cloneTriggeredRisks(initialSession.triggered_risks),
       knowledge_hits: cloneKnowledgeHits(initialSession.knowledge_hits),
-      suggestion: cloneSuggestion(initialSession.suggestion)
+      suggestion: cloneSuggestion(initialSession.suggestion),
+      agent_runtime: cloneAgentRuntime(initialSession.agent_runtime)
     },
     project: cloneProjectContext(initialSession.project)
   };
@@ -294,7 +313,7 @@ export async function getProjectDetail(projectId: string): Promise<ProjectDetail
   await wait(120);
   const project = mockProjects.find((item) => item.project_id === projectId);
   if (!project) {
-    throw new Error("模拟项目不存在。");
+    throw new Error("当前示例项目不存在。");
   }
 
   return {
@@ -342,8 +361,8 @@ export async function postSessionChat(params: {
       ai_response:
         risk.length > 0
           ? "收到预算上限。这个金额可能压不住当前配置，我会在方案里准备可靠性优先和预算优先两档平替建议。"
-          : "收到预算口径，右侧看板已锁定，后续导出会把预算约束带入方案说明。",
-      quick_replies: ["生成Word需求表", "调整机柜/UPS/空调"],
+          : "收到预算口径，我会把预算约束带入后续方案说明。",
+      quick_replies: ["整理交付稿", "调整机柜/UPS/空调"],
       updated_fields: { budget_range_high_rmb: budgetRmb },
       field_patches: [patch("budget_range_high_rmb", null, budgetRmb, "user_message", 0.9)],
       triggered_risks: risk,
@@ -354,7 +373,8 @@ export async function postSessionChat(params: {
         export_status: "ready",
         calculation_status: "provisional"
       },
-      suggestion: session.suggestion ? { ...session.suggestion, stale: true } : buildSuggestion(10, true)
+      suggestion: session.suggestion ? { ...session.suggestion, stale: true } : buildSuggestion(10, true),
+      agent_runtime: { ...mockAgentRuntime, responded_at: now() }
     };
     return response(session.session_id, version, data);
   }
@@ -363,8 +383,8 @@ export async function postSessionChat(params: {
     const rackCount = text.includes("20") || text.includes("30") || text.includes("服务器") ? 5 : 10;
     const data: ChatResponseData = {
       ai_response:
-        "核心规模口径已对齐。我已经按当前机柜数量重算出40kVA级UPS、120分钟电池后备和N+1精密空调建议，现在可以生成Word技术方案。",
-      quick_replies: ["生成Word需求表", "补充项目预算", "调整机柜/UPS/空调"],
+        "核心规模口径已对齐。我已经按当前机柜数量重算出 UPS、电池后备和精密空调建议，现在可以开始整理交付稿。",
+      quick_replies: ["整理交付稿", "补充项目预算", "调整机柜/UPS/空调"],
       updated_fields: { rack_count: rackCount },
       field_patches: [patch("rack_count", null, rackCount, "button_chip", 0.95)],
       triggered_risks: [riskFloorLoading, riskElevatorHeight],
@@ -375,7 +395,8 @@ export async function postSessionChat(params: {
         export_status: "ready",
         calculation_status: "provisional"
       },
-      suggestion: buildSuggestion(rackCount)
+      suggestion: buildSuggestion(rackCount),
+      agent_runtime: { ...mockAgentRuntime, responded_at: now() }
     };
     return response(session.session_id, version, data);
   }
@@ -408,10 +429,10 @@ export async function postSessionChat(params: {
     const stateReady = Boolean(inferredRackCount && hasMepSignal);
     const data: ChatResponseData = {
       ai_response: stateReady
-        ? `我先按${customerName ?? "这个项目"}${projectType ? `/${projectTypeLabel(projectType)}` : ""}整理出一版可预览需求：面积${area ? `约${area}平方米` : "待确认"}，规模先按${inferredRackCount}台机柜口径，已命中${knowledgeHits.length}条内部资料。现在可以先看免费预览，也可以继续补预算。`
-        : `收到，我先把能确定的线索整理进右侧看板，并从本地知识库命中了${knowledgeHits.length}条资料。现在还差最影响报价的规模口径：大概多少机柜或服务器？`,
+        ? `我先按${customerName ?? "这个项目"}${projectType ? `/${projectTypeLabel(projectType)}` : ""}整理出一版可预览需求：面积${area ? `约${area}平方米` : "待确认"}，规模先按${inferredRackCount}台机柜口径，已命中${knowledgeHits.length}条内部资料。现在可以先看预览稿，也可以继续补预算。`
+        : `收到，我先把能确定的线索整理进项目资料，并从本地知识库命中了${knowledgeHits.length}条资料。现在还差最影响报价的规模口径：大概多少机柜或服务器？`,
       quick_replies: stateReady
-        ? ["生成Word需求表", "补充项目预算", "调整机柜/UPS/空调"]
+        ? ["整理交付稿", "补充项目预算", "调整机柜/UPS/空调"]
         : ["计划放置 10 个标准机柜", "大约 20~30 台服务器", "不确定，按面积估算"],
       updated_fields: {
         customer_name: customerName,
@@ -432,15 +453,15 @@ export async function postSessionChat(params: {
         export_status: stateReady ? "ready" : "draft",
         calculation_status: "provisional"
       },
-      suggestion
+      suggestion,
+      agent_runtime: { ...mockAgentRuntime, responded_at: now() }
     };
     return response(session.session_id, version, data);
   }
 
   const data: ChatResponseData = {
-    ai_response:
-      "这个补充我已记入会话上下文。若它影响机柜、UPS、空调或预算，我会同步刷新右侧看板和最终导出参数。",
-    quick_replies: session.quick_replies.length ? session.quick_replies : ["生成Word需求表", "补充项目预算"],
+    ai_response: "这个补充已记入项目资料。若它影响机柜、UPS、空调或预算，我会同步刷新方案建议和交付内容。",
+    quick_replies: session.quick_replies.length ? session.quick_replies : ["整理交付稿", "补充项目预算"],
     updated_fields: {},
     field_patches: [],
     triggered_risks: session.triggered_risks,
@@ -451,7 +472,8 @@ export async function postSessionChat(params: {
       export_status: session.export_status,
       calculation_status: "provisional"
     },
-    suggestion: session.suggestion
+    suggestion: session.suggestion,
+    agent_runtime: { ...mockAgentRuntime, responded_at: now() }
   };
   return response(session.session_id, version, data);
 }
@@ -482,6 +504,7 @@ export async function postSessionOverride(params: {
     field_code === "rack_count" && typeof normalized === "number"
       ? normalized
       : Number(session.dashboard_fields.rack_count?.value || 10);
+  const fieldLabel = session.dashboard_fields[field_code]?.label ?? field_code;
   const suggestion = buildSuggestion(rackCount, true);
   const risks = [...session.triggered_risks];
   if (
@@ -515,7 +538,7 @@ export async function postSessionOverride(params: {
       old_value: oldValue,
       new_value: normalized
     },
-    ai_notice: `已将 ${field_code} 手动修正为 ${value}，并同步到导出上下文。`,
+    ai_notice: `已更新「${fieldLabel}」，并同步到项目资料。`,
     suggestion
   };
 
@@ -538,7 +561,7 @@ export async function getSessionExport(params: {
       server_time: now(),
       error: {
         code: "PAYMENT_REQUIRED",
-        message: "99 RMB payment willingness verification is required before final docx export.",
+        message: "Confirmation is required before final docx export.",
         retryable: true
       },
       billing_check: {
@@ -547,8 +570,8 @@ export async function getSessionExport(params: {
         currency: "CNY",
         status: "payment_required",
         actions: [
-          { id: "pay_99_rmb", label: "愿意，生成正式版" },
-          { id: "free_preview", label: "先预览免费版" },
+          { id: "pay_99_rmb", label: "继续整理正式稿" },
+          { id: "free_preview", label: "先看预览稿" },
           { id: "cancel", label: "暂时不用" }
         ]
       }

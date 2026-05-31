@@ -12,6 +12,7 @@ import {
   sourceLabel
 } from "./mockApi";
 import type {
+  AdminRuntimeStatus,
   ChatResponseData,
   ExportResponseData,
   KnowledgeIndexStatus,
@@ -246,6 +247,16 @@ export async function getKnowledgeStatus(): Promise<{
 }> {
   return requestAdminJson<{ ok: true; server_time: string; data: KnowledgeIndexStatus }>(
     "/api/admin/knowledge/status"
+  );
+}
+
+export async function getRuntimeStatus(): Promise<{
+  ok: true;
+  server_time: string;
+  data: AdminRuntimeStatus;
+}> {
+  return requestAdminJson<{ ok: true; server_time: string; data: AdminRuntimeStatus }>(
+    "/api/admin/runtime/status"
   );
 }
 

@@ -3,6 +3,7 @@ dist/
 server-dist/
 output/
 tmp/
+data/
 knowledge/uploads/
 
 src/generatedKnowledge.ts

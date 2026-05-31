@@ -15,6 +15,13 @@ export type FieldSource =
 export type RiskLevel = "P0_BLOCKER" | "P1_HIGH" | "P2_MEDIUM" | "P3_LOW";
 export type FsmState = "S0_IDLE" | "S1_CORE_EXTRACTION" | "S2_PROACTIVE_INQUIRIES" | "S3_READY_MONETIZATION";
 export type ExportStatus = "draft" | "ready" | "exported";
+export type AgentResponseMode = "real_llm" | "fallback";
+export type AgentFallbackReason =
+  | "not_configured"
+  | "timeout"
+  | "provider_error"
+  | "invalid_json"
+  | "unknown";
 
 export interface DashboardField {
   code: string;
@@ -55,6 +62,18 @@ export interface SuggestionSummary {
   stale: boolean;
 }
 
+export interface AgentRuntimeSummary {
+  response_mode: AgentResponseMode;
+  llm_configured: boolean;
+  provider_name: "openai_compatible";
+  model: string | null;
+  base_url: string | null;
+  used_json_retry: boolean;
+  fallback_reason: AgentFallbackReason | null;
+  fallback_message: string | null;
+  responded_at: string;
+}
+
 export interface KnowledgeHit {
   id: string;
   title: string;
@@ -65,6 +84,16 @@ export interface KnowledgeHit {
   retrieval_method?: "keyword" | "vector" | "hybrid";
   vector_score?: number;
   keyword_score?: number;
+  verification_status?:
+    | "Verified"
+    | "Vendor_Published"
+    | "Distributor_Provided"
+    | "Deprecated"
+    | "Unverified"
+    | "Reference_Only";
+  freshness?: "fresh" | "stale" | "unknown";
+  can_cite_in_formal_proposal?: boolean;
+  source_priority?: "P0" | "P1" | "P2";
 }
 
 export interface ChatRequest {
@@ -107,6 +136,7 @@ export interface ChatResponseData {
     calculation_status: "confirmed" | "provisional" | "blocked";
   };
   suggestion: SuggestionSummary | null;
+  agent_runtime: AgentRuntimeSummary;
 }
 
 export interface OverrideResponseData {
@@ -155,6 +185,48 @@ export interface ExportResponseData {
   };
 }
 
+export interface KnowledgeUploadSummary {
+  upload_id: string;
+  original_file_name: string;
+  stored_file_name: string;
+  stored_path: string;
+  size_bytes: number;
+  uploaded_at: string;
+}
+
+export interface KnowledgeUploadJobSummary {
+  job_id: string;
+  file_name: string;
+  status: "queued" | "rebuilding" | "completed" | "failed";
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+}
+
+export interface KnowledgeIndexStatus {
+  rebuild_status: "idle" | "queued" | "rebuilding" | "failed";
+  index: {
+    generated_at: string;
+    local_embedding_model: string;
+    local_embedding_dimensions: number;
+    chunk_count: number;
+    index_file: string;
+  };
+  last_uploaded_file: KnowledgeUploadSummary | null;
+  uploaded_file_count: number;
+  pending_job_count: number;
+  active_job: KnowledgeUploadJobSummary | null;
+  latest_job: KnowledgeUploadJobSummary | null;
+}
+
+export interface KnowledgeUploadResponseData {
+  uploaded_file: KnowledgeUploadSummary;
+  index: KnowledgeIndexStatus["index"];
+  rebuild_status: "completed";
+  job: KnowledgeUploadJobSummary;
+}
+
 export interface SuccessEnvelope<T> {
   ok: true;
   session_id: string;
@@ -190,6 +262,7 @@ export interface SessionSnapshotSession {
   triggered_risks: RiskFlag[];
   knowledge_hits: KnowledgeHit[];
   suggestion: SuggestionSummary | null;
+  agent_runtime: AgentRuntimeSummary | null;
 }
 
 export interface BackendSession {
@@ -202,6 +275,7 @@ export interface BackendSession {
   triggered_risks: RiskFlag[];
   knowledge_hits: KnowledgeHit[];
   suggestion: SuggestionSummary | null;
+  agent_runtime: AgentRuntimeSummary | null;
   payment_willingness_99_rmb: boolean | "maybe_preview_first" | null;
   export_payload_stale: boolean;
   created_at: string;
@@ -219,6 +293,21 @@ export interface ProjectSummary {
 export interface BackendProject extends ProjectSummary {
   created_at: string;
   dashboard_snapshot: Record<string, DashboardField>;
+}
+
+export interface AdminRuntimeStatus {
+  agent: {
+    llm_configured: boolean;
+    provider_name: "openai_compatible";
+    base_url: string;
+    model: string;
+    timeout_ms: number;
+  };
+  storage: {
+    database_path: string;
+    upload_dir: string;
+    output_dir: string;
+  };
 }
 
 export interface CreateProjectRequest {

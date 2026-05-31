@@ -142,6 +142,12 @@ Admin knowledge status:
 curl -u admin:ADMIN_PASSWORD https://DOMAIN/api/admin/knowledge/status
 ```
 
+Admin runtime status:
+
+```bash
+curl -u admin:ADMIN_PASSWORD https://DOMAIN/api/admin/runtime/status
+```
+
 Logs:
 
 ```bash
@@ -167,8 +173,9 @@ Real AI flow:
 
 1. Create `.env.api` with the provider base URL, token, and model.
 2. Restart the API container with `docker compose -f compose.seed.yml up -d`.
-3. Send a new chat message and confirm the answer no longer uses the fixed fallback wording.
-4. If provider errors occur, check `docker compose -f compose.seed.yml logs -f api`; the app should still answer through fallback.
+3. Confirm `GET /api/admin/runtime/status` shows `llm_configured: true` plus the expected base URL and model.
+4. Send a new chat message and confirm the workstation runtime banner switches to `真实模型`.
+5. If provider errors occur, check `docker compose -f compose.seed.yml logs -f api`; the app should still answer through fallback and the workstation should show fallback mode for that turn.
 
 ## Runtime Behavior
 

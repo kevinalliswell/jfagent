@@ -60,7 +60,7 @@ Selected for the first skeleton:
 - Node.js
 - TypeScript
 - Built-in `http` server
-- In-memory session store
+- SQLite runtime persistence via Node `node:sqlite`
 - Backend-side `ExportPayloadV1` schema and builder for Word rendering
 - Admin knowledge upload endpoint for seed trials
 
@@ -70,6 +70,7 @@ Why:
 - Avoids adding a backend framework before endpoint boundaries stabilize.
 - Provides a lightweight path to SaaS-oriented session APIs.
 - Freezes document-generation inputs and keeps the first `.docx` renderer small.
+- Adds restart-safe local persistence without committing to a larger SaaS database stack yet.
 
 Python remains useful for document ingestion and may still be used for future RAG/export services.
 
@@ -143,6 +144,7 @@ Current first-pass renderer:
 - Python `python-docx` for direct Word generation from `ExportPayloadV1`.
 - Node/TypeScript orchestration in `server/exportDocument.ts`.
 - Generated files stored under `output/doc/` and served by `/api/assets/{asset_id}/download`.
+- Asset metadata persisted in SQLite so the download route can recover after API restart.
 
 Still candidate/future approaches:
 
@@ -181,8 +183,8 @@ npm run api:start
 ## Known Technical Gaps
 
 - No browser/UI automation test runner is configured.
-- Backend runtime is only a skeleton and is available through optional frontend backend mode.
-- Real LLM integration is first-pass and uses low-precedence field candidates only.
+- Backend runtime is still a controlled pilot skeleton and is available through optional frontend backend mode.
+- Real LLM integration is first-pass, uses low-precedence field candidates only, and still needs real pilot prompt tuning/provider comparison.
 - No real embedding model or vector database exists.
 - No legacy `.xls` ingestion exists.
 - No automated visual DOCX render QA exists until LibreOffice/`soffice` is installed.

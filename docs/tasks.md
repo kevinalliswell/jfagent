@@ -4,7 +4,7 @@ This file is the working task ledger. Update it whenever priorities or statuses 
 
 ## Current Focus
 
-OpenAI-Compatible Agent V1 is the current focus: add a real LLM behind the backend chat boundary, keep rule/RAG fallback, and preserve seed-trial deployment stability.
+Presales Workstation V2 has shifted the product into a project-led cockpit phase. The current focus is small-scope pilot closure: stabilize the V2 workstation for `1 external paid sample + internal deep usage`, verify that the project cockpit supports real collaboration, keep backend-mode agent/runtime visibility trustworthy, and keep all runtime/diagnostic details behind the hidden admin surface instead of the normal product UI.
 
 ## Task Board
 
@@ -27,23 +27,27 @@ OpenAI-Compatible Agent V1 is the current focus: add a real LLM behind the backe
 | T-015 | P0       | Done   | Prepare seed server deployment docs                                  | Documents seed-user trial deployment and keeps systemd/Nginx as a legacy fallback.                                                                                                                |
 | T-016 | P0       | Done   | Containerize seed deployment with GHCR, Docker Compose, and Caddy    | Adds API/Web Dockerfiles, Compose, Caddy Basic Auth/HTTPS routing, GHCR publish workflow, and volume-backed uploads/exports.                                                                      |
 | T-017 | P0       | Done   | Prepare VPS Codex deployment handoff                                 | Adds `docs/vps-codex-deployment-handoff.md` with a copy-paste Codex CLI prompt for image-only VPS deployment.                                                                                     |
-| T-018 | P0       | Done   | Add project domain contracts and endpoints                           | Adds `/api/projects` list/create/fetch routes plus in-memory project service and smoke coverage.                                                                                                  |
+| T-018 | P0       | Done   | Add project domain contracts and endpoints                           | Adds `/api/projects` list/create/fetch routes plus a backend project domain with smoke coverage.                                                                                                  |
 | T-019 | P0       | Done   | Bind sessions and export payloads to projects                        | Backend chat/export can bind a session to a project, sync project snapshots, and use project name in export payloads.                                                                             |
 | T-020 | P1       | Done   | Expose project-bound session snapshots                               | `GET /api/session` now returns a read-only session snapshot with the bound project summary under `data`, and the frontend uses that snapshot plus project detail reads to restore selected context and surface project snapshot summaries in backend mode. |
-| T-021 | P0       | In Progress | Add OpenAI-compatible real agent v1                               | Backend chat should call an OpenAI-compatible `/v1/chat/completions` provider, accept `xingwan.store` via `OPENAI_BASE_URL`, and fall back cleanly when unavailable.                             |
+| T-021 | P0       | Done   | Add OpenAI-compatible real agent v1                                  | Backend chat now calls an OpenAI-compatible `/v1/chat/completions` provider, supports `xingwan.store`-style `OPENAI_BASE_URL`, retries when JSON mode is unsupported, and falls back cleanly when unavailable or invalid. |
+| T-022 | P0       | Done        | Add SQLite persistence for backend runtime state                  | Session snapshots, project records, export asset registry, knowledge upload metadata, and upload job status now persist under `data/jfagent.sqlite`, with smoke coverage for cross-process recovery. |
+| T-023 | P0       | Done   | Close the MVP toward a small paid pilot                               | Adds a paid-pilot closure spec/plan, exposes backend/frontend agent runtime visibility, and reframes repo docs around the `1 external sample + internal deep use` route. |
+| T-024 | P0       | Done   | Upgrade frontend to Presales Workstation V2                           | Frontend is now a project-led cockpit: left project pool, center project cockpit, right presales operations rail, with chat demoted into the work-advancement area, no obvious payment copy in the main viewport, and runtime/admin diagnostics hidden from the normal product surface. |
+| T-025 | P0       | Done   | Normalize persisted session-derived state and time-line the work area | Backend now rebuilds suggestion/risk/FSM-derived state from dashboard fields when loading persisted sessions, preventing old risk wording from leaking back into the UI; the center activity surface is further framed as a project timeline instead of a chat feed. |
 
 ## Immediate Next Steps
 
-1. Finish the OpenAI-compatible backend agent branch and validate it with the new smoke stub.
-2. Keep the VPS deployment path available via `docs/vps-codex-deployment-handoff.md`.
-3. Upload 10-20 cleaned internal seed documents through `?admin=1`.
-4. Run seed-user interviews and collect whether the requirement-sheet/export workflow is worth paying for.
-5. Add LibreOffice/`soffice` later so DOCX visual rendering can run.
+1. Pick the first external sample customer plus one internal presales owner and one manager/reviewer to test the V2 cockpit collaboration loop.
+2. Deploy the backend-mode seed stack and confirm the V2 first-screen signals stay reliable: completeness, risk, evidence basis, delivery/export status, and `real_llm` versus `fallback`.
+3. Upload 10-20 cleaned internal seed documents through `?admin=1` so the right-side presales operations rail has usable citation backing during pilot projects.
+4. Run 3-5 real project descriptions through the V2 workstation flow, then review whether the cockpit-to-chat-to-export path reduces back-and-forth versus the old chat-led MVP.
+5. Add LibreOffice/`soffice` later so DOCX visual rendering can run before expanding beyond the first small pilot.
 
 ## Open Questions
 
 - Which documents will be used for initial internal testing?
-- Which OpenAI-compatible provider/model should be the first production default after xingwan trialing?
+- Which OpenAI-compatible provider/model should be the first long-term default after xingwan trialing?
 - Should screenshots and generated demo artifacts be kept in the repo root or moved to `docs/assets/`?
 - What tenant/document permission model is required for SaaS?
 - Which domain and server account will host the seed trial?
