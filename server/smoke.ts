@@ -591,6 +591,22 @@ try {
   assert.ok(formalData.asset.sha256);
   assert.ok((formalData.asset.size_bytes ?? 0) > 1000);
   assert.ok(formalData.layout_validation.checks.some((check) => check.startsWith("docx_zip_opened:passed")));
+  assert.ok(
+    formalData.layout_validation.checks.includes("docx_soffice_available:passed") ||
+      formalData.layout_validation.checks.includes("docx_soffice_available:warning")
+  );
+  assert.ok(
+    formalData.layout_validation.checks.includes("docx_pdf_rendered:passed") ||
+      formalData.layout_validation.checks.includes("docx_pdf_rendered:warning")
+  );
+  assert.ok(
+    formalData.layout_validation.checks.includes("docx_png_pages_rendered:passed") ||
+      formalData.layout_validation.checks.includes("docx_png_pages_rendered:warning")
+  );
+  if (formalData.layout_validation.checks.includes("docx_soffice_available:passed")) {
+    assert.ok(formalData.layout_validation.checks.includes("docx_pdf_rendered:passed"));
+    assert.ok(formalData.layout_validation.checks.includes("docx_png_pages_rendered:passed"));
+  }
 
   const docx = await requestBytes(formalData.asset.download_url);
   assert.equal(docx.status, 200);

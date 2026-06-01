@@ -31,7 +31,7 @@ Phase B splits by ownership. Codex drives the **coding** tasks autonomously; the
 | ID    | Priority | Status | Task                                                                 | GOAL link |
 | ----- | -------- | ------ | -------------------------------------------------------------------- | --------- |
 | T-036 | P1       | Done   | Reconciled the 5 mock/backend drift items from T-028 (budget risk, override safety for listed-but-uninitialized fields, risk-trigger shape, `buildSuggestion` wording, FSM/state derivation). Added regression coverage and kept both verification gates green. | B reliability |
-| T-035 | P2       | Todo   | Install LibreOffice/`soffice` to enable automated DOCX visual QA. | B support |
+| T-035 | P2       | Done   | Installed LibreOffice/`soffice`, taught the backend export path to emit PDF/PNG visual-QA checks when available, surfaced dependency status in `scripts/setup-env.sh`, and verified `npm run check` + `npm run api:smoke` to green. | B support |
 
 ### Phase B — Owner action items (resource/decision gated; Codex can only prep)
 

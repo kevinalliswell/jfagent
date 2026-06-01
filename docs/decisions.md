@@ -217,7 +217,7 @@ Consequences:
 
 - Formal approved exports now produce a downloadable `.docx` asset.
 - Free preview remains simulated until PDF preview rendering is intentionally implemented.
-- The first renderer is deterministic and table-driven, but visual PNG QA requires LibreOffice/`soffice`.
+- The first renderer is deterministic and table-driven; visual layout QA now runs through headless LibreOffice/`soffice` when available, producing PDF + PNG preview checks without blocking export if the dependency is absent.
 - Future T-010 follow-up work should improve layout fidelity against `docs/specs-future/templates.md` once visual rendering is available.
 
 ## D-013: Use ESLint And Prettier As The First Quality Gate

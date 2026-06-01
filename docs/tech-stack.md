@@ -151,7 +151,11 @@ Still candidate/future approaches:
 - Markdown-to-docx pipeline with strict template QA.
 - Dedicated document rendering service later if fidelity becomes complex.
 
-LibreOffice/`soffice` is needed for automated DOCX-to-PNG visual QA. It is not currently available in this local environment.
+LibreOffice/`soffice` is the key runtime dependency for automated DOCX visual QA.
+When it is available, `server/exportDocument.ts` now renders a headless PDF plus
+PNG page previews (via `pdftoppm`) and reports the result through
+`layout_validation.checks`. `scripts/setup-env.sh` surfaces whether the local
+environment is visual-QA ready.
 
 ## Dependency Policy
 
@@ -187,6 +191,6 @@ npm run api:start
 - Real LLM integration is first-pass, uses low-precedence field candidates only, and still needs real pilot prompt tuning/provider comparison.
 - No real embedding model or vector database exists.
 - No legacy `.xls` ingestion exists.
-- No automated visual DOCX render QA exists until LibreOffice/`soffice` is installed.
+- Visual DOCX QA falls back to warning-only mode when `soffice` or `pdftoppm` is unavailable.
 - Free preview PDF remains simulated.
 - No tenant, authentication, or permission model exists.

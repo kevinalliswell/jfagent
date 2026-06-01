@@ -37,4 +37,21 @@ else
   echo "[setup-env] WARN: python3 not found; document ingestion and DOCX export will fail."
 fi
 
+# --- Visual DOCX QA dependencies --------------------------------------------
+if command -v soffice >/dev/null 2>&1; then
+  echo "[setup-env] visual DOCX QA ready (soffice: $(command -v soffice))"
+elif [ -x /Applications/LibreOffice.app/Contents/MacOS/soffice ]; then
+  echo "[setup-env] visual DOCX QA ready (soffice: /Applications/LibreOffice.app/Contents/MacOS/soffice)"
+elif [ "$(uname -s)" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
+  echo "[setup-env] WARN: soffice not found. Install with: brew install --cask libreoffice"
+else
+  echo "[setup-env] WARN: soffice not found; DOCX visual QA will stay in warning mode."
+fi
+
+if command -v pdftoppm >/dev/null 2>&1; then
+  echo "[setup-env] PDF rasterizer ready (pdftoppm: $(command -v pdftoppm))"
+else
+  echo "[setup-env] WARN: pdftoppm not found; DOCX visual QA cannot render PNG pages."
+fi
+
 echo "[setup-env] done. Verify with: npm run check"

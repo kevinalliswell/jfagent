@@ -187,7 +187,7 @@ Current important files:
 - `server/localVectorSearch.ts`: backend-side local hybrid keyword/vector retrieval for `/api/session/chat`.
 - `server/generatedKnowledge.json`: generated runtime backend knowledge chunks.
 - `server/exportPayload.ts`: frozen export payload schema, chapter plan builder, placeholder BOM, and schema-level validation.
-- `server/exportDocument.ts`: DOCX rendering orchestration plus persisted asset lookup/recovery.
+- `server/exportDocument.ts`: DOCX rendering orchestration, visual QA checks (`soffice` -> PDF -> PNG when available), and persisted asset lookup/recovery.
 - `server/http.ts`: route handling and JSON envelopes.
 - `scripts/render-export-docx.py`: Python `python-docx` renderer for `ExportPayloadV1`.
 
@@ -381,5 +381,5 @@ Use browser verification for user-facing flow changes:
 - Generated TypeScript knowledge indexes do not scale to large internal corpora.
 - Local hashed vectors improve recall but are still not a substitute for a real embedding model or vector database.
 - Formal Word export fidelity will need a dedicated rendering pipeline.
-- Visual DOCX layout QA currently depends on installing LibreOffice/`soffice`.
+- Visual DOCX layout QA downgrades to warning mode if `soffice` or the PDF rasterizer is unavailable.
 - Future SaaS deployment requires tenant isolation, document permission controls, and clear model/data privacy policy.

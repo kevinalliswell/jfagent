@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ExportAsset } from "./types.js";
 import type { ExportPayloadV1 } from "./exportPayload.js";
@@ -63,6 +63,117 @@ function readAudit(path: string): RenderedExportDocument["layout_validation"] {
   }
 }
 
+function statusRank(status: RenderedExportDocument["layout_validation"]["status"]) {
+  if (status === "blocked") return 2;
+  if (status === "warning") return 1;
+  return 0;
+}
+
+function mergeLayoutValidation(
+  base: RenderedExportDocument["layout_validation"],
+  next: RenderedExportDocument["layout_validation"]
+): RenderedExportDocument["layout_validation"] {
+  return {
+    status: statusRank(next.status) > statusRank(base.status) ? next.status : base.status,
+    checks: [...base.checks, ...next.checks]
+  };
+}
+
+function findExecutableOnPath(fileName: string) {
+  for (const entry of (process.env.PATH ?? "").split(":")) {
+    if (!entry) continue;
+    const candidate = join(entry, fileName);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function findSofficeBinary() {
+  const configured = process.env.SOFFICE_BIN;
+  if (configured && existsSync(configured)) return configured;
+
+  const fromPath = findExecutableOnPath("soffice") ?? findExecutableOnPath("libreoffice");
+  if (fromPath) return fromPath;
+
+  const knownCandidates = [
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/opt/homebrew/bin/soffice",
+    "/usr/bin/soffice",
+    "/usr/local/bin/soffice"
+  ];
+  return knownCandidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function findPdfRasterizer() {
+  return process.env.PDFTOPPM_BIN ?? findExecutableOnPath("pdftoppm");
+}
+
+function renderVisualAudit(docxPath: string): RenderedExportDocument["layout_validation"] {
+  const soffice = findSofficeBinary();
+  if (!soffice) {
+    return {
+      status: "warning",
+      checks: [
+        "docx_soffice_available:warning",
+        "docx_pdf_rendered:warning",
+        "docx_png_pages_rendered:warning"
+      ]
+    };
+  }
+
+  const pdfPath = docxPath.replace(/\.docx$/i, ".pdf");
+  const pdfResult = spawnSync(
+    soffice,
+    ["--headless", "--convert-to", "pdf:writer_pdf_Export", "--outdir", outputDir, docxPath],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024
+    }
+  );
+
+  if (pdfResult.status !== 0 || !existsSync(pdfPath)) {
+    return {
+      status: "warning",
+      checks: [
+        "docx_soffice_available:passed",
+        "docx_pdf_rendered:warning",
+        "docx_png_pages_rendered:warning"
+      ]
+    };
+  }
+
+  const pdftoppm = findPdfRasterizer();
+  if (!pdftoppm) {
+    return {
+      status: "warning",
+      checks: ["docx_soffice_available:passed", "docx_pdf_rendered:passed", "docx_png_pages_rendered:warning"]
+    };
+  }
+
+  const pngPrefix = docxPath.replace(/\.docx$/i, "_page");
+  const pngResult = spawnSync(pdftoppm, ["-png", pdfPath, pngPrefix], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024
+  });
+  const pngBase = basename(pngPrefix);
+  const pngFiles = readdirSync(outputDir).filter(
+    (fileName) => fileName.startsWith(`${pngBase}-`) && fileName.endsWith(".png")
+  );
+
+  return {
+    status: pngResult.status === 0 && pngFiles.length > 0 ? "passed" : "warning",
+    checks: [
+      "docx_soffice_available:passed",
+      "docx_pdf_rendered:passed",
+      pngResult.status === 0 && pngFiles.length > 0
+        ? "docx_png_pages_rendered:passed"
+        : "docx_png_pages_rendered:warning"
+    ]
+  };
+}
+
 export function renderExportDocx(payload: ExportPayloadV1): RenderedExportDocument {
   mkdirSync(outputDir, { recursive: true });
   const assetId = `asset_docx_${randomUUID()}`;
@@ -103,9 +214,12 @@ export function renderExportDocx(payload: ExportPayloadV1): RenderedExportDocume
   };
   saveExportAsset(storedRecord);
 
+  const structuralAudit = readAudit(auditPath);
+  const visualAudit = renderVisualAudit(docxPath);
+
   return {
     asset,
-    layout_validation: readAudit(auditPath)
+    layout_validation: mergeLayoutValidation(structuralAudit, visualAudit)
   };
 }
 
