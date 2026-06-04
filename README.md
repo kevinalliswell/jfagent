@@ -130,7 +130,9 @@ Verify generated local vectors:
 npm run kb:verify
 ```
 
-For seed server deployment, see `docs/deployment.md`. For seed-user trial guidance, see `docs/seed-user-trial.md`.
+For seed server deployment, see `docs/deployment.md`. For Windows/Linux/macOS
+local deployment and testing, see `docs/local-deployment.md`. For seed-user
+trial guidance, see `docs/seed-user-trial.md`.
 For a VPS-side Codex CLI handoff prompt, see `docs/vps-codex-deployment-handoff.md`.
 
 Build seed-trial containers locally:

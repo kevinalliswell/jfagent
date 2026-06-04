@@ -37,7 +37,7 @@ Phase B splits by ownership. Codex drives the **coding** tasks autonomously; the
 
 | ID    | Priority | Owner does | Codex can prep |
 | ----- | -------- | ---------- | -------------- |
-| T-031 | P0       | Deploy seed stack: provide server/domain/DNS, GHCR read token, Caddy auth hashes, optional OpenAI creds; decide how images get published (merge to `main` triggers the GHCR build). | A pre-deploy runbook/preflight; verify `compose.seed.yml` builds; review `.env` templates. See `docs/deployment.md` + `docs/vps-codex-deployment-handoff.md`. |
+| T-031 | P0       | Deploy seed stack: provide server/domain/DNS, GHCR read token, Caddy auth hashes, optional OpenAI creds; decide how images get published (merge to `main` triggers the GHCR build). | A pre-deploy runbook/preflight; verify `compose.seed.yml` builds; review `.env` templates. See `docs/deployment.md`, `docs/local-deployment.md`, and `docs/vps-codex-deployment-handoff.md`. |
 | T-032 | P0       | Supply 10–20 cleaned/desensitized internal docs; upload via `?admin=1`. | Verify ingestion formats + that uploads appear in `knowledge_hits`. |
 | T-033 | P0       | Provide 3–5 real project descriptions; judge the cockpit→chat→export flow. | Capture a friction-reduction template/checklist to fill in. |
 | T-034 | P0       | Provide a real external sample customer; judge the output customer-ready. | Help refine the export/`templates.md` mapping if the sheet needs changes. |

@@ -20,6 +20,9 @@ This is still a controlled seed trial, not a production SaaS deployment.
 
 If a Codex CLI session will perform deployment directly on the VPS, use `docs/vps-codex-deployment-handoff.md` as the handoff prompt.
 
+For Windows, Linux, and macOS local deployment/testing flows, see
+`docs/local-deployment.md`.
+
 ## Image Publishing
 
 Images are published by GitHub Actions in `.github/workflows/docker-publish.yml` when `main` is pushed.
@@ -257,6 +260,9 @@ docker compose -f compose.seed.yml restart api
 ## Local Container Verification
 
 For local Docker verification on a development machine:
+
+For OS-specific Windows/Linux/macOS steps, use `docs/local-deployment.md`. The
+short cross-platform version is:
 
 ```bash
 cp .env.caddy.example .env.caddy
