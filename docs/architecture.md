@@ -368,6 +368,11 @@ npm run build
 npm run api:smoke
 ```
 
+The TypeScript test files are run through Node's native test runner with
+`tsx` registered via `--import`. This keeps local runs and GitHub Actions
+aligned instead of relying on implicit Node TypeScript support that differs by
+runtime version.
+
 Use browser verification for user-facing flow changes:
 
 - Chat input produces dashboard updates.
@@ -382,4 +387,6 @@ Use browser verification for user-facing flow changes:
 - Local hashed vectors improve recall but are still not a substitute for a real embedding model or vector database.
 - Formal Word export fidelity will need a dedicated rendering pipeline.
 - Visual DOCX layout QA downgrades to warning mode if `soffice` or the PDF rasterizer is unavailable.
+- Backend runtime requires Node 24+ because persistence uses the built-in
+  `node:sqlite` module.
 - Future SaaS deployment requires tenant isolation, document permission controls, and clear model/data privacy policy.

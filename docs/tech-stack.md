@@ -57,7 +57,7 @@ Why:
 
 Selected for the first skeleton:
 
-- Node.js
+- Node.js 24+
 - TypeScript
 - Built-in `http` server
 - SQLite runtime persistence via Node `node:sqlite`

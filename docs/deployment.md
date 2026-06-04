@@ -276,7 +276,7 @@ docker compose -f compose.seed.yml down
 The previous single-server fallback is still viable when Docker is unavailable:
 
 - clone the repo into `/opt/jfagent`
-- install Node.js 20 and Python 3.10+
+- install Node.js 24+ and Python 3.10+
 - install `python-docx`, `openpyxl`, `pdfplumber`, and `pypdf` in a virtualenv
 - run `npm ci`, `npm run check`, backend-mode frontend build, and `npm run api:build`
 - supervise `node server-dist/index.js` with `systemd`

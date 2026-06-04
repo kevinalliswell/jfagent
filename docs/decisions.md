@@ -556,3 +556,51 @@ Consequences:
 - The API container no longer copies the future spec files into `/app`.
 - Agents must read future specs from `docs/specs-future/`, not assume root-level
   seed files exist.
+
+## D-029: TypeScript Tests Use Explicit `tsx` Loader Under Node Test
+
+Status: accepted.
+
+Decision:
+
+Run `.ts` test entrypoints with Node's native test runner plus `tsx` registered
+through `--import`, e.g. `node --import tsx --test tests/presalesCockpit.test.ts`.
+
+Reason:
+
+Local development may use newer Node versions that can execute TypeScript test
+entrypoints directly, but that support is runtime-version dependent. The GHCR
+publish workflow previously hit `ERR_UNKNOWN_FILE_EXTENSION` when a Node 20
+quality gate was given a `.ts` test file without a loader, blocking Docker image
+publication before the build/push steps.
+
+Consequences:
+
+- `npm run check` does not rely on implicit Node TypeScript support.
+- The project keeps the built-in Node test runner and adds only a small dev-time
+  TypeScript loader dependency.
+- Future test scripts should not rely on implicit Node TypeScript support.
+
+## D-030: Runtime And Publish Pipeline Require Node 24+
+
+Status: accepted.
+
+Decision:
+
+Set the project runtime floor to Node 24, update the GHCR publish workflow to
+`actions/setup-node` Node 24, and build both seed deployment images from
+`node:24-bookworm-slim`.
+
+Reason:
+
+Backend persistence imports the built-in `node:sqlite` module. Node 20 cannot
+load it, and Node 22 still reports it as experimental. Node 24 loads the current
+backend without experimental SQLite warnings and matches the GitHub Actions
+platform migration path.
+
+Consequences:
+
+- `package.json` declares `engines.node >=24`.
+- CI quality gates, API image runtime, and web image build runtime use the same
+  Node major.
+- Legacy non-Docker deployments must install Node 24+ before running the backend.

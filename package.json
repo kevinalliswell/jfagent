@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "kb:build": "node scripts/build-knowledge-index.mjs",
     "kb:verify": "node scripts/verify-knowledge-vector-index.mjs",
@@ -12,8 +15,8 @@
     "lint": "eslint \"{src,server}/*.{ts,tsx}\" vite.config.ts eslint.config.js",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,js,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,js,json}\"",
-    "test:ui": "node --test tests/presalesCockpit.test.ts",
-    "test:logic": "npm run api:build && node --test tests/backendDeterministicLogic.test.ts",
+    "test:ui": "node --import tsx --test tests/presalesCockpit.test.ts",
+    "test:logic": "npm run api:build && node --import tsx --test tests/backendDeterministicLogic.test.ts",
     "test": "npm run test:ui && npm run test:logic && node server-dist/smoke.js",
     "check": "npm run lint && npm run format:check && npm run build && npm run kb:verify && npm run test",
     "dev": "npm run kb:build && vite --host 0.0.0.0",
@@ -36,6 +39,7 @@
     "@types/react-dom": "^19.0.0",
     "eslint": "^10.4.0",
     "prettier": "^3.8.3",
+    "tsx": "^4.22.4",
     "typescript-eslint": "^8.59.4"
   }
 }
