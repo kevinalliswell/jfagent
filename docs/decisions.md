@@ -604,3 +604,137 @@ Consequences:
 - CI quality gates, API image runtime, and web image build runtime use the same
   Node major.
 - Legacy non-Docker deployments must install Node 24+ before running the backend.
+
+## D-031: Commercial v1 Ships With App-Level Auth (Email+Password, JWT, scrypt)
+
+Status: accepted (2026-06-12, owner-directed commercial launch).
+
+Decision:
+
+The backend enforces application-level authentication: email+password accounts
+hashed with scrypt, HMAC-SHA256 JWTs (secret from `JWT_SECRET` or generated and
+persisted in SQLite), roles `admin`/`user`, per-user project/session ownership.
+The first registered user (or the env-configured `ADMIN_EMAIL`/`ADMIN_PASSWORD`
+bootstrap account) becomes admin and claims legacy ownerless rows.
+`AUTH_DISABLED=1` keeps a single-operator local mode where every request acts
+as a synthetic local admin. `REGISTRATION_MODE=open|closed` gates self-signup.
+
+Reason:
+
+A commercially deployable product cannot rely on Caddy Basic Auth alone:
+selling to multiple users requires accounts, data isolation, and admin
+controls. Hand-rolled JWT/scrypt on `node:crypto` avoids new dependencies and
+fits the zero-dependency backend.
+
+Consequences:
+
+- All `/api/session*`, `/api/projects*`, `/api/auth/me|redeem`, and `/api/admin/*`
+  routes require a Bearer token unless `AUTH_DISABLED=1`.
+- Admin endpoints additionally require the admin role.
+- Asset downloads remain capability URLs (unguessable asset ids) so plain
+  `<a href>` downloads work.
+- Mock mode has no auth — it is a browser demo only.
+
+## D-032: Monetization Via Export Credits + Offline License Codes (Supersedes D-004's Willingness-Only Stance)
+
+Status: accepted (2026-06-12).
+
+Decision:
+
+Formal DOCX export consumes 1 export credit; free PDF preview is unlimited.
+New users receive `FREE_EXPORT_CREDITS` (default 1). Admins generate single-use
+license codes (`JF-XXXXX-XXXXX`, each carrying N credits) in the `?admin=1`
+panel and sell them offline (WeChat/bank transfer); users redeem codes in-app.
+Every credit movement is recorded in `credit_transactions`. Admin exports
+bypass the debit but still pass the confirmation gate.
+
+Reason:
+
+This closes a real commercial loop without onboarding a payment provider
+(which requires business credentials the project does not yet have). License
+codes are the standard first monetization step for Chinese B2B tools.
+
+Consequences:
+
+- `GET /api/session/export` returns 402 `PAYMENT_REQUIRED` (confirmation) and
+  402 `NO_CREDITS` (balance exhausted, with redeem action) before a 200.
+- The 99 RMB price stays as display anchoring; actual pricing is whatever the
+  owner sells a code for.
+- Online payment integration remains future work.
+
+## D-033: Deterministic Expert Engine Implements rules.md As Code
+
+Status: accepted (2026-06-12).
+
+Decision:
+
+`server/rulesEngine.ts` implements the FUTURE spec `docs/specs-future/rules.md`:
+UPS capacity engine (redundancy factors, standard size rounding), precision
+cooling engine (0.08 kW/m² thermal density, 1.15 margin, 25-100 kW catalog,
+N+1/2N unit counts, area assumed at 4 m²/rack when missing), battery-bank
+estimator (12V100Ah, 384V bus, 80% DoD), an internal reference BOM cost
+estimate with mid-market unit prices, and the risk rules RULE_FLOOR_LOADING
+(P0), RULE_ELEVATOR_HEIGHT (P1), RULE_BUDGET_MISMATCH (BOM×1.3 when estimable,
+450k heuristic fallback otherwise). Outputs carry
+confirmed/provisional/blocked status plus an audit log, feed
+`SuggestionSummary` (extended fields), chat fallback text, the LLM prompt
+context, and the export payload.
+
+Reason:
+
+The engine is the product's differentiation: deterministic engineering minima
+the LLM may explain but never lower. The spec was already designed; the code
+now matches it, with `tests/rulesEngine.test.ts` covering the spec's test
+matrix.
+
+Consequences:
+
+- The internal estimate is explicitly 非正式报价 and renders only in the
+  internal estimate appendix (7.2) with a disclaimer.
+- Reference unit prices live in code (`REFERENCE_PRICES`) and should be
+  reviewed quarterly against `knowledge/机房设备参考价格表.csv`.
+- Mock mode keeps simpler suggestion math (demo-only divergence, recorded in
+  `docs/architecture.md`).
+
+## D-034: Sessions Persist Chat History And Replay It To The LLM
+
+Status: accepted (2026-06-12).
+
+Decision:
+
+`BackendSession.messages` stores up to 200 user/ai turns in the session
+snapshot JSON. `GET /api/session` returns them so the UI restores the timeline
+after reload; the last 12 turns are replayed to the OpenAI-compatible model
+together with engine outputs and required prompts. Override actions append an
+ai notice message server-side.
+
+Reason:
+
+A pre-sales agent must hold context across turns and survive reloads;
+single-shot prompting made the agent feel stateless.
+
+Consequences:
+
+- Larger snapshot rows (capped at 200 messages).
+- LLM token usage grows with history; cap revisited when streaming lands.
+
+## D-035: Free Preview Renders A Real Watermarked PDF When LibreOffice Exists
+
+Status: accepted (2026-06-12).
+
+Decision:
+
+`renderExportPreviewPdf` renders the same payload to DOCX with a red 预览版
+banner, converts it via `soffice --headless` to PDF, and registers it as a
+downloadable asset. When `soffice` is missing the API falls back to the old
+simulated preview asset.
+
+Reason:
+
+The free preview is the conversion moment of the funnel; a fake `#`-link
+preview undercut the credibility of the paid export.
+
+Consequences:
+
+- Docker images must keep LibreOffice installed (already true for visual QA).
+- Preview no longer flips `export_status` to `exported`; only formal export does.

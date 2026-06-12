@@ -302,12 +302,36 @@ def add_toc(doc: Document) -> None:
     doc.add_page_break()
 
 
+def is_preview(payload: dict[str, Any]) -> bool:
+    return payload.get("export_metadata", {}).get("export_type") == "preview_pdf"
+
+
+def add_preview_banner(doc: Document) -> None:
+    table = doc.add_table(rows=1, cols=1)
+    table_pr(table, TABLE_WIDTH_CM)
+    cell = table.rows[0].cells[0]
+    set_cell_shading(cell, RISK_FILL)
+    set_cell_borders(cell, RISK_RED, "12")
+    set_cell_text(
+        cell,
+        "预 览 版 PREVIEW — 本文件为免费预览稿，仅供核对需求口径与章节结构；正式交付稿以导出版本为准。",
+        bold=True,
+        color=RISK_RED,
+        size=11,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+    doc.add_paragraph("")
+
+
 def render_cover(doc: Document, payload: dict[str, Any]) -> None:
     doc.core_properties.title = payload.get("project_name", "机房需求表")
     doc.core_properties.subject = "Data Center Requirement Sheet"
     doc.core_properties.author = payload.get("export_metadata", {}).get("generated_by", "Data Center Pre-sales AI Agent")
 
-    for _ in range(5):
+    if is_preview(payload):
+        add_preview_banner(doc)
+
+    for _ in range(4):
         doc.add_paragraph("")
     customer = doc.add_paragraph(style="CoverCustomer")
     customer.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -541,6 +565,52 @@ def render_chapter_6(doc: Document, payload: dict[str, Any]) -> None:
         )
 
 
+def wan_text(value: Any) -> str:
+    if value is None or value == "":
+        return "待测算"
+    try:
+        return f"{round(float(value) / 10000, 1)} 万元"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def render_internal_estimate(doc: Document, payload: dict[str, Any]) -> None:
+    estimate = payload.get("internal_estimate", {})
+    lines = estimate.get("lines", [])
+    if not lines:
+        return
+    doc.add_heading("7.2 内部参考估算（非对外报价）", level=2)
+    para = doc.add_paragraph(style="MutedText")
+    para.add_run(text(estimate.get("disclaimer"), "内部参考估算口径，不构成正式报价。"))
+    add_table(
+        doc,
+        ["项目", "规格", "数量", "单位", "参考单价(元)", "参考小计(元)"],
+        [
+            [
+                line.get("name"),
+                line.get("spec"),
+                line.get("quantity"),
+                line.get("unit"),
+                line.get("unit_price_rmb"),
+                line.get("subtotal_rmb"),
+            ]
+            for line in lines
+        ],
+        [3.2, 4.2, 1.6, 1.2, 2.9, 2.9],
+        header_fill=PRICE_FILL,
+    )
+    add_key_value_table(
+        doc,
+        [
+            ("设备小计", wan_text(estimate.get("equipment_subtotal_rmb"))),
+            ("安装调试与运输", wan_text(estimate.get("service_subtotal_rmb"))),
+            ("参考估算合计", wan_text(estimate.get("total_rmb"))),
+            ("参考估算区间", f"{wan_text(estimate.get('low_rmb'))} ~ {wan_text(estimate.get('high_rmb'))}"),
+            ("预算匹配安全线(×1.3)", wan_text(estimate.get("budget_floor_rmb"))),
+        ],
+    )
+
+
 def render_chapter_7(doc: Document, payload: dict[str, Any]) -> None:
     doc.add_heading("第七章 商务价格占位附录", level=1)
     commercial = payload.get("commercial", {})
@@ -551,6 +621,7 @@ def render_chapter_7(doc: Document, payload: dict[str, Any]) -> None:
         if isinstance(lines, list):
             all_lines.extend(lines)
     add_bom_table(doc, all_lines, "7.1 汇总设备与施工占位清单")
+    render_internal_estimate(doc, payload)
 
 
 def render_document(payload: dict[str, Any], output_path: Path) -> dict[str, Any]:

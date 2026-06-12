@@ -174,10 +174,10 @@ function renderVisualAudit(docxPath: string): RenderedExportDocument["layout_val
   };
 }
 
-export function renderExportDocx(payload: ExportPayloadV1): RenderedExportDocument {
+function renderDocxToDisk(payload: ExportPayloadV1, fileSuffix: string) {
   mkdirSync(outputDir, { recursive: true });
   const assetId = `asset_docx_${randomUUID()}`;
-  const fileStem = `${safeFileStem(payload.project_name)}_需求表_v1`;
+  const fileStem = `${safeFileStem(payload.project_name)}_${fileSuffix}`;
   const payloadPath = resolve(outputDir, `${assetId}.json`);
   const auditPath = resolve(outputDir, `${assetId}.audit.json`);
   const docxPath = resolve(outputDir, `${fileStem}_${assetId.slice(-8)}.docx`);
@@ -194,25 +194,40 @@ export function renderExportDocx(payload: ExportPayloadV1): RenderedExportDocume
     throw new Error(details || "DOCX renderer failed.");
   }
 
-  const stat = statSync(docxPath);
+  return { assetId, docxPath, auditPath };
+}
+
+function registerAsset(assetId: string, filePath: string, mimeType: string, payload: ExportPayloadV1) {
+  const stat = statSync(filePath);
   const asset: ExportAsset = {
     asset_id: assetId,
-    file_name: basename(docxPath),
-    mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    file_name: basename(filePath),
+    mime_type: mimeType,
     download_url: `/api/assets/${assetId}/download`,
     expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    sha256: sha256(docxPath),
+    sha256: sha256(filePath),
     size_bytes: stat.size
   };
-  renderedAssets.set(assetId, { asset, file_path: docxPath });
+  renderedAssets.set(assetId, { asset, file_path: filePath });
   const storedRecord: StoredAssetRecord = {
     asset,
-    file_path: docxPath,
+    file_path: filePath,
     session_id: payload.session_id,
     state_version: payload.state_version,
     created_at: new Date().toISOString()
   };
   saveExportAsset(storedRecord);
+  return asset;
+}
+
+export function renderExportDocx(payload: ExportPayloadV1): RenderedExportDocument {
+  const { assetId, docxPath, auditPath } = renderDocxToDisk(payload, "需求表_v1");
+  const asset = registerAsset(
+    assetId,
+    docxPath,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    payload
+  );
 
   const structuralAudit = readAudit(auditPath);
   const visualAudit = renderVisualAudit(docxPath);
@@ -220,6 +235,42 @@ export function renderExportDocx(payload: ExportPayloadV1): RenderedExportDocume
   return {
     asset,
     layout_validation: mergeLayoutValidation(structuralAudit, visualAudit)
+  };
+}
+
+/**
+ * Render a watermarked preview PDF (docx -> soffice -> pdf). Returns null when
+ * LibreOffice is unavailable so the caller can fall back to a simulated asset.
+ */
+export function renderExportPreviewPdf(payload: ExportPayloadV1): RenderedExportDocument | null {
+  const soffice = findSofficeBinary();
+  if (!soffice) return null;
+
+  const { docxPath, auditPath } = renderDocxToDisk(payload, "预览版");
+  const pdfResult = spawnSync(
+    soffice,
+    ["--headless", "--convert-to", "pdf:writer_pdf_Export", "--outdir", outputDir, docxPath],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024
+    }
+  );
+  const pdfPath = docxPath.replace(/\.docx$/i, ".pdf");
+  if (pdfResult.status !== 0 || !existsSync(pdfPath)) {
+    return null;
+  }
+
+  const assetId = `asset_pdf_${randomUUID()}`;
+  const asset = registerAsset(assetId, pdfPath, "application/pdf", payload);
+  const structuralAudit = readAudit(auditPath);
+
+  return {
+    asset,
+    layout_validation: mergeLayoutValidation(structuralAudit, {
+      status: "passed",
+      checks: ["preview_pdf_rendered:passed"]
+    })
   };
 }
 

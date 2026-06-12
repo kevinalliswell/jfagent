@@ -1,6 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import type { BackendProject, BackendSession, ExportAsset } from "./types.js";
+import type {
+  BackendProject,
+  BackendSession,
+  CreditTransaction,
+  ExportAsset,
+  LicenseRecord,
+  UserRecord
+} from "./types.js";
 import { getDataDir, getDatabasePath } from "./runtimePaths.js";
 
 export interface StoredAssetRecord {
@@ -104,7 +111,55 @@ database.exec(`
     hit_json TEXT NOT NULL,
     requested_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user',
+    export_credits INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS licenses (
+    code TEXT PRIMARY KEY,
+    credits INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    note TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    redeemed_by TEXT,
+    redeemed_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS credit_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    credits_delta INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL,
+    ref TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS app_secrets (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `);
+
+function ensureColumn(table: string, column: string, definition: string) {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+ensureColumn("sessions", "user_id", "TEXT");
+ensureColumn("projects", "user_id", "TEXT");
 
 function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
@@ -126,14 +181,20 @@ export function saveSession(session: BackendSession) {
   database
     .prepare(
       `
-        INSERT INTO sessions (session_id, snapshot_json, updated_at)
-        VALUES (?, ?, ?)
+        INSERT INTO sessions (session_id, snapshot_json, updated_at, user_id)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET
           snapshot_json = excluded.snapshot_json,
-          updated_at = excluded.updated_at
+          updated_at = excluded.updated_at,
+          user_id = excluded.user_id
       `
     )
-    .run(session.session_id, JSON.stringify(normalizeSession(session)), session.updated_at);
+    .run(
+      session.session_id,
+      JSON.stringify(normalizeSession(session)),
+      session.updated_at,
+      session.user_id ?? null
+    );
 }
 
 export function countSessions() {
@@ -148,7 +209,13 @@ export function loadProject(projectId: string) {
   return row ? parseJson<BackendProject>(row.project_json) : null;
 }
 
-export function loadProjects() {
+export function loadProjects(userId?: string | null) {
+  if (userId) {
+    const rows = database
+      .prepare("SELECT project_json FROM projects WHERE user_id = ? ORDER BY updated_at DESC")
+      .all(userId) as unknown as ProjectRow[];
+    return rows.map((row) => parseJson<BackendProject>(row.project_json));
+  }
   const rows = database
     .prepare("SELECT project_json FROM projects ORDER BY updated_at DESC")
     .all() as unknown as ProjectRow[];
@@ -159,14 +226,34 @@ export function saveProject(project: BackendProject) {
   database
     .prepare(
       `
-        INSERT INTO projects (project_id, project_json, updated_at)
-        VALUES (?, ?, ?)
+        INSERT INTO projects (project_id, project_json, updated_at, user_id)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(project_id) DO UPDATE SET
           project_json = excluded.project_json,
-          updated_at = excluded.updated_at
+          updated_at = excluded.updated_at,
+          user_id = excluded.user_id
       `
     )
-    .run(project.project_id, JSON.stringify(project), project.updated_at);
+    .run(project.project_id, JSON.stringify(project), project.updated_at, project.user_id ?? null);
+}
+
+/**
+ * Assign all legacy rows without an owner to the given user. Runs once when
+ * the bootstrap admin account is created so pre-auth data stays reachable.
+ */
+export function claimLegacyOwnership(userId: string) {
+  database.prepare("UPDATE projects SET user_id = ? WHERE user_id IS NULL").run(userId);
+  database.prepare("UPDATE sessions SET user_id = ? WHERE user_id IS NULL").run(userId);
+  const projectRows = database
+    .prepare("SELECT project_json FROM projects WHERE user_id = ?")
+    .all(userId) as unknown as ProjectRow[];
+  for (const row of projectRows) {
+    const project = parseJson<BackendProject>(row.project_json);
+    if (!project.user_id) {
+      project.user_id = userId;
+      saveProject(project);
+    }
+  }
 }
 
 export function saveExportAsset(record: StoredAssetRecord) {
@@ -312,4 +399,180 @@ export function logRetrievalAudit(sessionId: string, queryText: string, hits: un
       `
     )
     .run(sessionId, queryText, JSON.stringify(hits), new Date().toISOString());
+}
+
+interface UserRow {
+  user_id: string;
+  email: string;
+  password_hash: string;
+  display_name: string;
+  role: string;
+  export_credits: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function toUserRecord(row: UserRow): UserRecord {
+  return {
+    user_id: row.user_id,
+    email: row.email,
+    password_hash: row.password_hash,
+    display_name: row.display_name,
+    role: row.role === "admin" ? "admin" : "user",
+    export_credits: row.export_credits,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+
+export function insertUser(user: UserRecord) {
+  database
+    .prepare(
+      `
+        INSERT INTO users (user_id, email, password_hash, display_name, role, export_credits, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    )
+    .run(
+      user.user_id,
+      user.email,
+      user.password_hash,
+      user.display_name,
+      user.role,
+      user.export_credits,
+      user.created_at,
+      user.updated_at
+    );
+}
+
+export function getUserByEmail(email: string) {
+  const row = database.prepare("SELECT * FROM users WHERE email = ?").get(email) as UserRow | undefined;
+  return row ? toUserRecord(row) : null;
+}
+
+export function getUserById(userId: string) {
+  const row = database.prepare("SELECT * FROM users WHERE user_id = ?").get(userId) as UserRow | undefined;
+  return row ? toUserRecord(row) : null;
+}
+
+export function countUsers() {
+  const row = database.prepare("SELECT COUNT(*) AS count FROM users").get() as { count: number };
+  return row.count;
+}
+
+export function listUsers() {
+  const rows = database.prepare("SELECT * FROM users ORDER BY created_at ASC").all() as unknown as UserRow[];
+  return rows.map(toUserRecord);
+}
+
+export function updateUserCredits(userId: string, balanceAfter: number) {
+  database
+    .prepare("UPDATE users SET export_credits = ?, updated_at = ? WHERE user_id = ?")
+    .run(balanceAfter, new Date().toISOString(), userId);
+}
+
+export function insertCreditTransaction(entry: CreditTransaction) {
+  database
+    .prepare(
+      `
+        INSERT INTO credit_transactions (user_id, type, credits_delta, balance_after, ref, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `
+    )
+    .run(entry.user_id, entry.type, entry.credits_delta, entry.balance_after, entry.ref, entry.created_at);
+}
+
+export function listCreditTransactions(userId: string, limit = 50) {
+  return database
+    .prepare(
+      `
+        SELECT user_id, type, credits_delta, balance_after, ref, created_at
+        FROM credit_transactions
+        WHERE user_id = ?
+        ORDER BY id DESC
+        LIMIT ?
+      `
+    )
+    .all(userId, limit) as unknown as CreditTransaction[];
+}
+
+interface LicenseRow {
+  code: string;
+  credits: number;
+  status: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  redeemed_by: string | null;
+  redeemed_at: string | null;
+}
+
+function toLicenseRecord(row: LicenseRow): LicenseRecord {
+  return {
+    code: row.code,
+    credits: row.credits,
+    status: row.status === "redeemed" ? "redeemed" : row.status === "disabled" ? "disabled" : "active",
+    note: row.note,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    redeemed_by: row.redeemed_by,
+    redeemed_at: row.redeemed_at
+  };
+}
+
+export function insertLicense(license: LicenseRecord) {
+  database
+    .prepare(
+      `
+        INSERT INTO licenses (code, credits, status, note, created_by, created_at, redeemed_by, redeemed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    )
+    .run(
+      license.code,
+      license.credits,
+      license.status,
+      license.note,
+      license.created_by,
+      license.created_at,
+      license.redeemed_by,
+      license.redeemed_at
+    );
+}
+
+export function getLicense(code: string) {
+  const row = database.prepare("SELECT * FROM licenses WHERE code = ?").get(code) as LicenseRow | undefined;
+  return row ? toLicenseRecord(row) : null;
+}
+
+export function markLicenseRedeemed(code: string, userId: string) {
+  database
+    .prepare("UPDATE licenses SET status = 'redeemed', redeemed_by = ?, redeemed_at = ? WHERE code = ?")
+    .run(userId, new Date().toISOString(), code);
+}
+
+export function listLicenses(limit = 100) {
+  const rows = database
+    .prepare("SELECT * FROM licenses ORDER BY created_at DESC LIMIT ?")
+    .all(limit) as unknown as LicenseRow[];
+  return rows.map(toLicenseRecord);
+}
+
+export function getAppSecret(key: string) {
+  const row = database.prepare("SELECT value FROM app_secrets WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+export function setAppSecret(key: string, value: string) {
+  database
+    .prepare(
+      `
+        INSERT INTO app_secrets (key, value, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `
+    )
+    .run(key, value, new Date().toISOString());
 }

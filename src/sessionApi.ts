@@ -11,6 +11,7 @@ import {
   postSessionOverride as postMockSessionOverride,
   sourceLabel
 } from "./mockApi";
+import { authHeaders, clearAuthToken, readAuthToken } from "./authApi";
 import type {
   AdminRuntimeStatus,
   ChatResponseData,
@@ -52,9 +53,15 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       "content-type": "application/json",
+      ...authHeaders(),
       ...(init?.headers ?? {})
     }
   });
+  if (response.status === 401 && readAuthToken()) {
+    // Token expired or revoked: drop it and restart at the login screen.
+    clearAuthToken();
+    window.location.reload();
+  }
   const rawBody = await response.text();
   let body: T;
   try {
@@ -173,7 +180,7 @@ export async function getSessionExport(params: {
 
   const query = new URLSearchParams({
     session_id: params.session.session_id,
-    payment_mode: params.payment_mode ?? "simulate_99_rmb",
+    payment_mode: params.payment_mode ?? "credit",
     approved: params.approved ? "true" : "false"
   });
   const result = await requestJson<SuccessEnvelope<ExportResponseData> | PaymentRequiredError>(

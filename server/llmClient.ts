@@ -27,7 +27,7 @@ export interface AgentLlmOutput {
 }
 
 interface ChatCompletionMessage {
-  role: "system" | "user";
+  role: "system" | "user" | "assistant";
   content: string;
 }
 
@@ -45,6 +45,9 @@ export interface AgentLlmContext {
   patches: FieldPatch[];
   knowledgeHits: KnowledgeHit[];
   risks: RiskFlag[];
+  history?: Array<{ sender: "user" | "ai"; text: string }>;
+  engineSummary?: Record<string, unknown> | null;
+  requiredPrompts?: string[];
 }
 
 export interface AgentLlmResult {
@@ -54,7 +57,8 @@ export interface AgentLlmResult {
 
 const defaultBaseUrl = "https://api.openai.com/v1";
 const defaultModel = "gpt-4o-mini";
-const defaultTimeoutMs = 12000;
+const defaultTimeoutMs = 25000;
+const maxHistoryTurns = 12;
 
 function enabled() {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
@@ -169,13 +173,25 @@ function parseAgentOutput(raw: string): AgentLlmOutput | null {
   };
 }
 
+const SYSTEM_PROMPT = [
+  "你是一名有十五年经验的中文数据中心/机房建设售前总监，服务于工程集成商的销售与售前团队。",
+  "你的风格：务实、商业敏感、懂工程边界、说人话；像带团队的负责人，不像客服模板，也不堆术语。",
+  "工作方式：",
+  "1. 后端确定性计算引擎给出的 UPS 容量、制冷配置、电池规模、造价估算和风险，是工程最低口径。你可以解释和展开，但绝不能调低、淡化或隐藏，也不能宣称某条已触发风险'问题不大'。",
+  "2. 已触发的风险必须在回复中自然带到，并说明需要确认什么。",
+  "3. 缺关键口径时，一次最多追问 1-2 个最影响方案和报价的问题，优先级：机柜/服务器规模 > 面积楼层 > UPS后备时间 > 预算 > 品牌偏好。",
+  "4. 知识库命中可以作为依据自然引用（说资料名），但不得伪造资料名或编造数据。",
+  "5. 不输出价格承诺；估算只能引用引擎给出的参考估算区间，并强调'内部参考估算、非正式报价'。",
+  "6. field_candidates 只填用户消息中明确或强暗示的信息，禁止臆造；值要做单位规范化（面积㎡数字、楼层数字、后备时间分钟数、预算人民币元）。",
+  "输出协议：只输出一个 JSON 对象，不要 Markdown、不要代码块。必须包含 ai_response（中文回复，120-300字为宜）、quick_replies（最多4个短句）、field_candidates（数组，可为空）。"
+].join("\n");
+
 function promptForAgent(context: AgentLlmContext): ChatCompletionMessage[] {
   const fieldSummary = Object.values(context.session.dashboard_fields).map((field) => ({
     code: field.code,
     label: field.label,
     value: field.value,
     source: field.source,
-    confidence: field.confidence,
     needs_confirmation: field.needs_confirmation
   }));
   const knowledgeSummary = context.knowledgeHits.map((hit) => ({
@@ -191,16 +207,20 @@ function promptForAgent(context: AgentLlmContext): ChatCompletionMessage[] {
     blocking: risk.blocking
   }));
 
+  const historyMessages: ChatCompletionMessage[] = (context.history ?? [])
+    .slice(-maxHistoryTurns)
+    .map((message) => ({
+      role: message.sender === "user" ? ("user" as const) : ("assistant" as const),
+      content: message.text
+    }));
+
   return [
-    {
-      role: "system",
-      content:
-        "你是资深中文数据中心/机房建设售前总监。你要务实、商业敏感、少问长表单。只输出一个 JSON 对象，不要 Markdown。JSON 必须包含 ai_response、quick_replies、field_candidates。field_candidates 只能使用用户明确或强暗示的信息，不要编造。"
-    },
+    { role: "system", content: SYSTEM_PROMPT },
+    ...historyMessages,
     {
       role: "user",
       content: JSON.stringify({
-        task: "根据用户消息、当前字段、知识命中和风险，生成面向用户的中文售前回复，并给出可补充的字段候选。",
+        task: "根据最新用户消息、当前字段、引擎计算结果、知识命中和风险，生成中文售前回复并给出字段候选。",
         output_shape: {
           ai_response: "string",
           quick_replies: ["string"],
@@ -213,15 +233,10 @@ function promptForAgent(context: AgentLlmContext): ChatCompletionMessage[] {
             }
           ]
         },
-        constraints: [
-          "回复要像售前负责人，不要像客服模板。",
-          "不要输出价格承诺，报价仍需人工确认。",
-          "如果知识命中有帮助，可自然提到来源依据，但不要伪造资料名。",
-          "quick_replies 最多 4 个，短句。",
-          "field_candidates 只输出你有把握从用户消息中提取的字段。"
-        ],
         user_message: context.userText,
         dashboard_fields: fieldSummary,
+        deterministic_engine: context.engineSummary ?? null,
+        engine_required_prompts: context.requiredPrompts ?? [],
         rule_patches: context.patches,
         knowledge_hits: knowledgeSummary,
         triggered_risks: riskSummary

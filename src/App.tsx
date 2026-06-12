@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Building2,
+  Calculator,
   Check,
   ChevronRight,
   ClipboardList,
@@ -9,12 +10,16 @@ import {
   Edit3,
   FileText,
   FolderUp,
+  KeyRound,
   Loader2,
+  LogOut,
   Plus,
   RefreshCw,
   Send,
   ServerCog,
   ShieldAlert,
+  Ticket,
+  UserRound,
   X
 } from "lucide-react";
 import {
@@ -34,6 +39,18 @@ import {
   uploadKnowledgeFile,
   sourceLabel
 } from "./sessionApi";
+import {
+  adminGenerateLicenses,
+  adminListLicenses,
+  clearAuthToken,
+  getAuthMode,
+  getMe,
+  postLogin,
+  postRedeem,
+  postRegister,
+  readAuthToken,
+  writeAuthToken
+} from "./authApi";
 import { buildPresalesCockpit, projectStageClass, projectStageLabel } from "./presalesCockpit";
 import type { PresalesCockpit } from "./presalesCockpit";
 import type {
@@ -44,10 +61,12 @@ import type {
   ExportAsset,
   KnowledgeIndexStatus,
   KnowledgeHit,
+  LicenseRecord,
   PaymentRequiredError,
   ProjectContext,
   ProjectDetail,
   ProjectSummary,
+  PublicUser,
   RiskFlag,
   SessionSnapshotData,
   SessionSnapshot
@@ -153,6 +172,7 @@ function createDraftSession(project: ProjectContext | null): SessionSnapshot {
 
 function hydrateSessionFromSnapshot(snapshot: SessionSnapshotData): SessionSnapshot {
   const dashboardFields = cloneDashboardFields(snapshot.session.dashboard_fields);
+  const persistedMessages = (snapshot.session.messages ?? []).map((message) => ({ ...message }));
 
   return {
     session_id: snapshot.session.session_id,
@@ -160,14 +180,16 @@ function hydrateSessionFromSnapshot(snapshot: SessionSnapshotData): SessionSnaps
     fsm_state: snapshot.session.fsm_state,
     export_status: snapshot.session.export_status,
     completion: completionForState(snapshot.session.fsm_state, dashboardFields),
-    messages: [
-      makeMessage(
-        "ai",
-        snapshot.project
-          ? `已载入 ${snapshot.project.project_name} 的项目资料。你可以继续补充需求，或直接开始整理方案与交付内容。`
-          : "已载入项目资料。你可以继续补充需求，或直接开始整理方案与交付内容。"
-      )
-    ],
+    messages: persistedMessages.length
+      ? persistedMessages
+      : [
+          makeMessage(
+            "ai",
+            snapshot.project
+              ? `已载入 ${snapshot.project.project_name} 的项目资料。你可以继续补充需求，或直接开始整理方案与交付内容。`
+              : "已载入项目资料。你可以继续补充需求，或直接开始整理方案与交付内容。"
+          )
+        ],
     quick_replies: buildQuickRepliesForSession(snapshot.project, snapshot.session.export_status === "ready"),
     dashboard_fields: dashboardFields,
     triggered_risks: cloneTriggeredRisks(snapshot.session.triggered_risks),
@@ -365,9 +387,64 @@ export default function App() {
   const [runtimeStatus, setRuntimeStatus] = useState<AdminRuntimeStatus | null>(null);
   const [knowledgeUploadNotice, setKnowledgeUploadNotice] = useState<string | null>(null);
   const [isKnowledgeUploading, setIsKnowledgeUploading] = useState(false);
+  const [authUser, setAuthUser] = useState<PublicUser | null>(null);
+  const [authRequired, setAuthRequired] = useState(sessionApiMode === "backend");
+  const [isAuthBootstrapping, setIsAuthBootstrapping] = useState(sessionApiMode === "backend");
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const isAuthed = sessionApiMode !== "backend" || !authRequired || Boolean(authUser);
 
   const latestSession = useRef(session);
   latestSession.current = session;
+
+  useEffect(() => {
+    if (sessionApiMode !== "backend") return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        if (readAuthToken()) {
+          const me = await getMe();
+          if (cancelled) return;
+          setAuthUser(me.user);
+          setAuthRequired(me.auth_required);
+          return;
+        }
+        const mode = await getAuthMode();
+        if (cancelled) return;
+        setAuthRequired(mode.auth_required);
+        if (!mode.auth_required) {
+          const me = await getMe();
+          if (!cancelled) setAuthUser(me.user);
+        }
+      } catch {
+        if (!cancelled) {
+          clearAuthToken();
+          setAuthUser(null);
+        }
+      } finally {
+        if (!cancelled) setIsAuthBootstrapping(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function refreshAuthUser() {
+    if (sessionApiMode !== "backend") return;
+    try {
+      const me = await getMe();
+      setAuthUser(me.user);
+    } catch {
+      // Keep the stale user object; the next 401 will route back to login.
+    }
+  }
+
+  function handleLogout() {
+    clearAuthToken();
+    window.location.reload();
+  }
 
   function announceProjectNotice(message: string) {
     setProjectsNotice(message);
@@ -460,14 +537,15 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!isAdminMode) return;
+    if (!isAdminMode || !isAuthed) return;
     void refreshKnowledgeStatus();
     void refreshRuntimeStatus();
-  }, [isAdminMode]);
+  }, [isAdminMode, isAuthed]);
 
   useEffect(() => {
+    if (!isAuthed) return;
     void refreshProjects(true);
-  }, []);
+  }, [isAuthed]);
 
   useEffect(() => {
     if (!session.project) {
@@ -738,18 +816,23 @@ export default function App() {
       }
 
       setPaymentRequest(null);
+      const isPreviewResult = result.data.export_status === "preview_ready";
+      const creditsBalance = result.data.billing_check.credits_balance;
+      if (!isPreviewResult && typeof creditsBalance === "number") {
+        setAuthUser((current) => (current ? { ...current, export_credits: creditsBalance } : current));
+      }
       setSession((current) => ({
         ...current,
         state_version: result.state_version,
-        export_status: "exported",
+        export_status: isPreviewResult ? current.export_status : "exported",
         export_asset: result.data.asset,
         messages: [
           ...current.messages,
           makeMessage(
             "ai",
-            result.data.export_status === "preview_ready"
-              ? "预览稿已生成，可以先核对需求、风险和章节结构。"
-              : "正式交付稿已生成，章节、风险提示和价格占位已经整理完成。"
+            isPreviewResult
+              ? "预览稿已生成，可以先核对需求、风险和章节结构。预览不消耗导出额度。"
+              : "正式交付稿已生成，章节、风险提示、测算结果和价格占位已经整理完成。"
           )
         ]
       }));
@@ -770,6 +853,27 @@ export default function App() {
     }
   }
 
+  if (sessionApiMode === "backend" && isAuthBootstrapping) {
+    return (
+      <main className="auth-shell">
+        <div className="auth-card auth-loading">
+          <Loader2 className="spin" size={28} />
+          <p>正在连接机房售前工作台...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (sessionApiMode === "backend" && authRequired && !authUser) {
+    return (
+      <AuthScreen
+        onAuthed={(user) => {
+          setAuthUser(user);
+        }}
+      />
+    );
+  }
+
   return (
     <main className="app-shell">
       <Sidebar
@@ -786,6 +890,10 @@ export default function App() {
         runtimeStatus={runtimeStatus}
         knowledgeUploadNotice={knowledgeUploadNotice}
         isKnowledgeUploading={isKnowledgeUploading}
+        authUser={authUser}
+        authRequired={authRequired}
+        onLogout={handleLogout}
+        onOpenRedeem={() => setShowRedeemModal(true)}
         onProjectDraftNameChange={setProjectDraftName}
         onCreateProject={handleCreateProject}
         onSelectProject={switchProject}
@@ -835,10 +943,24 @@ export default function App() {
       {paymentRequest && (
         <ExportReviewModal
           request={paymentRequest}
+          authUser={authUser}
           isExporting={isExporting}
           onClose={() => setPaymentRequest(null)}
           onPay={() => startExport(true)}
           onPreview={() => startExport(true, "free_preview")}
+          onRedeemed={(user) => {
+            setAuthUser(user);
+            void refreshAuthUser();
+          }}
+        />
+      )}
+      {showRedeemModal && (
+        <RedeemModal
+          onClose={() => setShowRedeemModal(false)}
+          onRedeemed={(user) => {
+            setAuthUser(user);
+            setShowRedeemModal(false);
+          }}
         />
       )}
     </main>
@@ -859,6 +981,10 @@ function Sidebar({
   runtimeStatus,
   knowledgeUploadNotice,
   isKnowledgeUploading,
+  authUser,
+  authRequired,
+  onLogout,
+  onOpenRedeem,
   onProjectDraftNameChange,
   onCreateProject,
   onSelectProject,
@@ -880,6 +1006,10 @@ function Sidebar({
   runtimeStatus: AdminRuntimeStatus | null;
   knowledgeUploadNotice: string | null;
   isKnowledgeUploading: boolean;
+  authUser: PublicUser | null;
+  authRequired: boolean;
+  onLogout: () => void;
+  onOpenRedeem: () => void;
   onProjectDraftNameChange: (value: string) => void;
   onCreateProject: () => void | Promise<void>;
   onSelectProject: (project: ProjectSummary) => void | Promise<void>;
@@ -985,11 +1115,294 @@ function Sidebar({
         />
       )}
 
+      {isAdminMode && sessionApiMode === "backend" && (!authRequired || authUser?.role === "admin") && (
+        <AdminLicensePanel />
+      )}
+
+      {sessionApiMode === "backend" && authRequired && authUser && (
+        <section className="user-chip">
+          <div className="user-chip-head">
+            <UserRound size={16} />
+            <div className="user-chip-name">
+              <strong>{authUser.display_name}</strong>
+              <small>{authUser.role === "admin" ? "管理员" : authUser.email}</small>
+            </div>
+          </div>
+          <div className="user-chip-credits">
+            <Ticket size={14} />
+            <span>
+              导出额度 <b>{authUser.role === "admin" ? "不限" : `${authUser.export_credits} 份`}</b>
+            </span>
+          </div>
+          <div className="user-chip-actions">
+            {authUser.role !== "admin" && (
+              <button type="button" onClick={onOpenRedeem}>
+                <KeyRound size={13} />
+                兑换额度
+              </button>
+            )}
+            <button type="button" onClick={onLogout}>
+              <LogOut size={13} />
+              退出
+            </button>
+          </div>
+        </section>
+      )}
+
       <div className="sidebar-foot">
         <ShieldAlert size={16} />
         <span>项目中心</span>
       </div>
     </aside>
+  );
+}
+
+function AuthScreen({ onAuthed }: { onAuthed: (user: PublicUser) => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function submit() {
+    if (isSubmitting) return;
+    if (!email.trim() || !password) {
+      setNotice("请输入邮箱和密码。");
+      return;
+    }
+    setIsSubmitting(true);
+    setNotice(null);
+    try {
+      const result =
+        mode === "login"
+          ? await postLogin({ email: email.trim(), password })
+          : await postRegister({
+              email: email.trim(),
+              password,
+              display_name: displayName.trim() || undefined
+            });
+      writeAuthToken(result.token);
+      onAuthed(result.user);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "操作失败，请稍后再试。");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <div className="brand-mark">
+            <ServerCog size={26} />
+          </div>
+          <div>
+            <h1>机房售前工作台</h1>
+            <p>需求整理 · 风险核查 · 测算报价 · 交付文档</p>
+          </div>
+        </div>
+
+        <div className="auth-tabs">
+          <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>
+            登录
+          </button>
+          <button
+            type="button"
+            className={mode === "register" ? "active" : ""}
+            onClick={() => setMode("register")}
+          >
+            注册
+          </button>
+        </div>
+
+        <div className="auth-form">
+          {mode === "register" && (
+            <label>
+              <span>姓名 / 团队称呼</span>
+              <input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="例如：售前一组 小王"
+              />
+            </label>
+          )}
+          <label>
+            <span>邮箱</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="name@company.com"
+            />
+          </label>
+          <label>
+            <span>密码</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void submit();
+              }}
+              placeholder={mode === "register" ? "至少 8 位" : "请输入密码"}
+            />
+          </label>
+        </div>
+
+        {notice && <p className="auth-notice">{notice}</p>}
+
+        <button className="primary-action auth-submit" type="button" onClick={() => void submit()}>
+          {isSubmitting ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
+          {mode === "login" ? "登录工作台" : "注册并进入"}
+        </button>
+
+        <p className="auth-foot">
+          {mode === "register"
+            ? "新账号自带免费导出额度，可先完整体验一次正式交付稿。"
+            : "首次部署时注册的第一个账号将自动成为管理员。"}
+        </p>
+      </div>
+    </main>
+  );
+}
+
+function RedeemModal({
+  onClose,
+  onRedeemed
+}: {
+  onClose: () => void;
+  onRedeemed: (user: PublicUser) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function submit() {
+    if (isSubmitting || !code.trim()) return;
+    setIsSubmitting(true);
+    setNotice(null);
+    try {
+      const result = await postRedeem(code.trim());
+      setNotice(`已到账 ${result.credits_added} 份导出额度，当前余额 ${result.balance_after} 份。`);
+      onRedeemed(result.user);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "兑换失败，请核对激活码。");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="payment-modal">
+        <button className="close-modal" onClick={onClose} title="关闭">
+          <X size={18} />
+        </button>
+        <span className="modal-kicker">导出额度</span>
+        <h2>兑换激活码</h2>
+        <p>输入销售提供的激活码（格式 JF-XXXXX-XXXXX），额度立即到账，用于生成正式交付稿。</p>
+        <div className="redeem-row">
+          <input
+            autoFocus
+            value={code}
+            onChange={(event) => setCode(event.target.value.toUpperCase())}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void submit();
+            }}
+            placeholder="JF-XXXXX-XXXXX"
+          />
+          <button className="pay-button" onClick={() => void submit()} disabled={isSubmitting}>
+            {isSubmitting ? <Loader2 className="spin" size={16} /> : <KeyRound size={16} />}
+            兑换
+          </button>
+        </div>
+        {notice && <p className="redeem-notice">{notice}</p>}
+      </div>
+    </div>
+  );
+}
+
+function AdminLicensePanel() {
+  const [count, setCount] = useState("5");
+  const [credits, setCredits] = useState("5");
+  const [note, setNote] = useState("");
+  const [licenses, setLicenses] = useState<LicenseRecord[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isWorking, setIsWorking] = useState(false);
+
+  async function refresh() {
+    try {
+      setLicenses(await adminListLicenses());
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "激活码列表读取失败");
+    }
+  }
+
+  async function generate() {
+    if (isWorking) return;
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const created = await adminGenerateLicenses({
+        count: Number(count) || 1,
+        credits: Number(credits) || 1,
+        note: note.trim() || undefined
+      });
+      setNotice(`已生成 ${created.length} 个激活码，每个含 ${created[0]?.credits ?? "-"} 份额度。`);
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "激活码生成失败");
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const activeCodes = licenses.filter((license) => license.status === "active");
+
+  return (
+    <section className="admin-upload admin-license">
+      <div className="admin-upload-title">
+        <Ticket size={17} />
+        <span>激活码管理</span>
+      </div>
+      <div className="license-form">
+        <label>
+          数量
+          <input value={count} onChange={(event) => setCount(event.target.value)} inputMode="numeric" />
+        </label>
+        <label>
+          额度/个
+          <input value={credits} onChange={(event) => setCredits(event.target.value)} inputMode="numeric" />
+        </label>
+      </div>
+      <input
+        className="license-note"
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="备注（客户/渠道）"
+      />
+      <button className="admin-refresh" type="button" onClick={() => void generate()} disabled={isWorking}>
+        {isWorking ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
+        生成激活码
+      </button>
+      <div className="admin-status">
+        <span>
+          未使用 {activeCodes.length} / 共 {licenses.length} 个
+        </span>
+        {activeCodes.slice(0, 5).map((license) => (
+          <small key={license.code} className="license-code">
+            {license.code} · {license.credits}份{license.note ? ` · ${license.note}` : ""}
+          </small>
+        ))}
+      </div>
+      {notice && <p>{notice}</p>}
+    </section>
   );
 }
 
@@ -2089,41 +2502,91 @@ function CommercialSummaryCard({ hits }: { hits: KnowledgeHit[] }) {
   );
 }
 
+function formatWanRange(low: number | null | undefined, high: number | null | undefined) {
+  if (!low || !high) return null;
+  return `${Math.round(low / 10000)}-${Math.round(high / 10000)} 万`;
+}
+
+function calculationStatusLabel(status: "confirmed" | "provisional" | "blocked") {
+  if (status === "confirmed") return "口径已确认";
+  if (status === "blocked") return "缺关键口径";
+  return "含暂估口径";
+}
+
 function SuggestionCard({ suggestion }: { suggestion: SessionSnapshot["suggestion"] }) {
   if (!suggestion) {
     return (
       <section className="dash-card quiet-card">
         <div className="quiet-state">
-          <FileText size={20} />
-          <span>配置建议将在规模口径确认后生成</span>
+          <Calculator size={20} />
+          <span>配置测算与造价估算将在规模口径确认后生成</span>
         </div>
       </section>
     );
   }
+
+  const estimateRange = formatWanRange(suggestion.estimatedCostLowRmb, suggestion.estimatedCostHighRmb);
 
   return (
     <section className="dash-card suggestion-card">
       <div className="card-heading">
         <div>
           <p>测算建议</p>
-          <h3>配置建议与工程提示</h3>
+          <h3>配置测算与造价参考</h3>
         </div>
-        {suggestion.stale && (
-          <span className="stale-chip">
-            <RefreshCw size={13} />
-            已重算
+        {suggestion.calculationStatus ? (
+          <span className={`calc-status-chip calc-${suggestion.calculationStatus}`}>
+            {calculationStatusLabel(suggestion.calculationStatus)}
           </span>
+        ) : (
+          suggestion.stale && (
+            <span className="stale-chip">
+              <RefreshCw size={13} />
+              已重算
+            </span>
+          )
         )}
       </div>
       <div className="suggestion-grid">
+        <Metric
+          label="总IT负载"
+          value={suggestion.totalItLoadKw ? `${suggestion.totalItLoadKw}kW` : "待测算"}
+        />
         <Metric label="UPS容量" value={`${suggestion.upsCapacityKva}kVA`} />
         <Metric label="电池后备" value={`${suggestion.batteryRuntimeMinutes}分钟`} />
-        <Metric label="精密空调" value={`${suggestion.coolingModelKw}kW`} />
+        <Metric
+          label="精密空调"
+          value={
+            suggestion.coolingUnitCount
+              ? `${suggestion.coolingModelKw}kW×${suggestion.coolingUnitCount}台`
+              : `${suggestion.coolingModelKw}kW`
+          }
+        />
         <Metric label="冗余模式" value={suggestion.coolingRedundancy} />
+        <Metric
+          label="电池规模"
+          value={suggestion.batteryCount ? `约${suggestion.batteryCount}只` : "待确认"}
+        />
       </div>
+      {estimateRange && (
+        <div className="estimate-banner">
+          <Calculator size={16} />
+          <div>
+            <strong>内部参考估算 {estimateRange}</strong>
+            <small>
+              含设备、施工与调试；预算安全线约{" "}
+              {suggestion.estimatedBudgetFloorRmb
+                ? `${Math.round(suggestion.estimatedBudgetFloorRmb / 10000)} 万`
+                : "-"}
+              。非正式报价。
+            </small>
+          </div>
+        </div>
+      )}
       <div className="notes-list">
         <p>{suggestion.pduNote}</p>
         <p>{suggestion.structuralNote}</p>
+        {suggestion.batteryNote && <p>{suggestion.batteryNote}</p>}
       </div>
     </section>
   );
@@ -2164,18 +2627,47 @@ function ExportAssetCard({ asset }: { asset: ExportAsset }) {
 }
 
 function ExportReviewModal({
-  request: _request,
+  request,
+  authUser,
   isExporting,
   onClose,
   onPay,
-  onPreview
+  onPreview,
+  onRedeemed
 }: {
   request: PaymentRequiredError;
+  authUser: PublicUser | null;
   isExporting: boolean;
   onClose: () => void;
   onPay: () => void;
   onPreview: () => void;
+  onRedeemed: (user: PublicUser) => void;
 }) {
+  const [code, setCode] = useState("");
+  const [redeemNotice, setRedeemNotice] = useState<string | null>(null);
+  const [isRedeeming, setIsRedeeming] = useState(false);
+
+  const isCreditMode = request.billing_check.mode === "credit";
+  const outOfCredits = request.billing_check.status === "no_credits";
+  const adminBypass = Boolean(request.billing_check.admin_bypass);
+  const balance = request.billing_check.credits_balance;
+
+  async function redeemAndRetry() {
+    if (isRedeeming || !code.trim()) return;
+    setIsRedeeming(true);
+    setRedeemNotice(null);
+    try {
+      const result = await postRedeem(code.trim());
+      onRedeemed(result.user);
+      setRedeemNotice(`已到账 ${result.credits_added} 份额度，正在生成正式稿...`);
+      onPay();
+    } catch (error) {
+      setRedeemNotice(error instanceof Error ? error.message : "兑换失败，请核对激活码。");
+    } finally {
+      setIsRedeeming(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="payment-title">
       <div className="payment-modal">
@@ -2183,18 +2675,56 @@ function ExportReviewModal({
           <X size={18} />
         </button>
         <span className="modal-kicker">正式整理流程</span>
-        <h2 id="payment-title">整理正式交付稿</h2>
-        <p>
-          系统会把当前项目的需求、风险、资料依据和配置建议整理成正式文档，便于内部复核或继续对外协同。
-          是否继续进入正式整理流程？
-        </p>
+        <h2 id="payment-title">{outOfCredits ? "导出额度不足" : "生成正式交付稿"}</h2>
+        {outOfCredits ? (
+          <>
+            <p>
+              当前账户剩余导出额度 <b>{balance ?? 0} 份</b>
+              ，生成正式交付稿需要 1 份。请输入激活码兑换额度，或先生成免费预览稿核对内容。
+            </p>
+            <div className="redeem-row">
+              <input
+                autoFocus
+                value={code}
+                onChange={(event) => setCode(event.target.value.toUpperCase())}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void redeemAndRetry();
+                }}
+                placeholder="JF-XXXXX-XXXXX"
+              />
+              <button
+                className="pay-button"
+                onClick={() => void redeemAndRetry()}
+                disabled={isRedeeming || isExporting}
+              >
+                {isRedeeming ? <Loader2 className="spin" size={16} /> : <KeyRound size={16} />}
+                兑换并生成
+              </button>
+            </div>
+            {redeemNotice && <p className="redeem-notice">{redeemNotice}</p>}
+            <p className="modal-subnote">没有激活码？联系你的服务对接人获取（按导出份数计）。</p>
+          </>
+        ) : (
+          <p>
+            系统会把当前项目的需求、风险、测算结果、资料依据和价格占位整理成正式 Word 文档。
+            {isCreditMode &&
+              !adminBypass &&
+              (typeof balance === "number"
+                ? `本次将消耗 1 份导出额度（当前剩余 ${balance} 份）。`
+                : "本次将消耗 1 份导出额度。")}
+            {isCreditMode && adminBypass && "管理员账号生成正式稿不消耗额度。"}
+            {authUser?.role === "admin" && !isCreditMode && ""}
+          </p>
+        )}
         <div className="modal-actions">
-          <button className="pay-button" onClick={onPay} disabled={isExporting}>
-            {isExporting ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-            继续整理正式稿
-          </button>
+          {!outOfCredits && (
+            <button className="pay-button" onClick={onPay} disabled={isExporting}>
+              {isExporting ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
+              确认生成正式稿
+            </button>
+          )}
           <button className="preview-button" onClick={onPreview} disabled={isExporting}>
-            先看预览稿
+            先看免费预览稿
           </button>
           <button className="ghost-button" onClick={onClose} disabled={isExporting}>
             暂时不用

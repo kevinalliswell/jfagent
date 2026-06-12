@@ -5,7 +5,8 @@ import type {
   DashboardField,
   ProjectContext,
   ProjectStage,
-  ProjectSummary
+  ProjectSummary,
+  PublicUser
 } from "./types.js";
 import { loadProject, loadProjects, saveProject } from "./persistence.js";
 
@@ -39,13 +40,21 @@ function stageFromSession(session: BackendSession): ProjectStage {
   return "intake";
 }
 
-export function createProject(name?: string) {
+export function canAccessProject(project: BackendProject, user: PublicUser | null) {
+  if (!user) return true;
+  if (user.role === "admin") return true;
+  if (!project.user_id) return true;
+  return project.user_id === user.user_id;
+}
+
+export function createProject(name?: string, user?: PublicUser | null) {
   const timestamp = now();
   const project: BackendProject = {
     project_id: `proj_${randomUUID().slice(0, 8)}`,
     project_name: name?.trim() || defaultProjectName(),
     stage: "intake",
     primary_session_id: null,
+    user_id: user?.user_id ?? null,
     updated_at: timestamp,
     created_at: timestamp,
     dashboard_snapshot: {}
@@ -55,13 +64,18 @@ export function createProject(name?: string) {
   return cloneProject(project);
 }
 
-export function listProjects() {
+function hydrateProjectsCache() {
   if (projects.size === 0) {
     for (const project of loadProjects()) {
       projects.set(project.project_id, project);
     }
   }
+}
+
+export function listProjects(user?: PublicUser | null) {
+  hydrateProjectsCache();
   return Array.from(projects.values())
+    .filter((project) => canAccessProject(project, user ?? null))
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
     .map(toSummary);
 }
@@ -104,6 +118,9 @@ export function syncProjectFromSession(projectId: string, session: BackendSessio
   project.primary_session_id = session.session_id;
   project.stage = stageFromSession(session);
   project.dashboard_snapshot = cloneFields(session.dashboard_fields);
+  if (!project.user_id && session.user_id) {
+    project.user_id = session.user_id;
+  }
   project.updated_at = now();
   saveProject(project);
   return project;

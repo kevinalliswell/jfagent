@@ -68,6 +68,37 @@ export interface SuggestionSummary {
   pduNote: string;
   structuralNote: string;
   stale: boolean;
+  totalItLoadKw?: number | null;
+  coolingUnitCount?: number | null;
+  batteryCount?: number | null;
+  batteryNote?: string | null;
+  estimatedBomCostRmb?: number | null;
+  estimatedCostLowRmb?: number | null;
+  estimatedCostHighRmb?: number | null;
+  estimatedBudgetFloorRmb?: number | null;
+  calculationStatus?: "confirmed" | "provisional" | "blocked";
+}
+
+export type UserRole = "admin" | "user";
+
+export interface PublicUser {
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: UserRole;
+  export_credits: number;
+  created_at: string;
+}
+
+export interface LicenseRecord {
+  code: string;
+  credits: number;
+  status: "active" | "redeemed" | "disabled";
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  redeemed_by: string | null;
+  redeemed_at: string | null;
 }
 
 export interface AgentRuntimeSummary {
@@ -230,6 +261,7 @@ export interface SessionSnapshotData {
     knowledge_hits: KnowledgeHit[];
     suggestion: SuggestionSummary | null;
     agent_runtime: AgentRuntimeSummary | null;
+    messages?: ChatMessage[];
   };
   project: ProjectContext | null;
 }
@@ -301,6 +333,7 @@ export interface ExportResponseData {
     amount_rmb: number;
     currency: "CNY";
     status: "approved" | "free_preview";
+    credits_balance?: number | null;
     transaction_id: string;
   };
   included_chapters: string[];
@@ -318,15 +351,21 @@ export interface PaymentRequiredError {
   state_version: number;
   server_time: string;
   error: {
-    code: "PAYMENT_REQUIRED";
+    code: "PAYMENT_REQUIRED" | "NO_CREDITS";
     message: string;
     retryable: true;
   };
   billing_check: {
-    mode: "simulate_99_rmb";
+    mode: "simulate_99_rmb" | "credit";
     amount_rmb: 99;
     currency: "CNY";
-    status: "payment_required";
-    actions: Array<{ id: "pay_99_rmb" | "free_preview" | "cancel"; label: string }>;
+    status: "payment_required" | "no_credits";
+    credits_required?: number;
+    credits_balance?: number | null;
+    admin_bypass?: boolean;
+    actions: Array<{
+      id: "pay_99_rmb" | "free_preview" | "cancel" | "redeem_code";
+      label: string;
+    }>;
   };
 }

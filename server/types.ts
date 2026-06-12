@@ -60,6 +60,15 @@ export interface SuggestionSummary {
   pduNote: string;
   structuralNote: string;
   stale: boolean;
+  totalItLoadKw?: number | null;
+  coolingUnitCount?: number | null;
+  batteryCount?: number | null;
+  batteryNote?: string | null;
+  estimatedBomCostRmb?: number | null;
+  estimatedCostLowRmb?: number | null;
+  estimatedCostHighRmb?: number | null;
+  estimatedBudgetFloorRmb?: number | null;
+  calculationStatus?: "confirmed" | "provisional" | "blocked";
 }
 
 export interface AgentRuntimeSummary {
@@ -174,6 +183,7 @@ export interface ExportResponseData {
     amount_rmb: number;
     currency: "CNY";
     status: "approved" | "free_preview";
+    credits_balance?: number | null;
     transaction_id: string;
   };
   included_chapters: string[];
@@ -263,11 +273,20 @@ export interface SessionSnapshotSession {
   knowledge_hits: KnowledgeHit[];
   suggestion: SuggestionSummary | null;
   agent_runtime: AgentRuntimeSummary | null;
+  messages?: ChatHistoryMessage[];
+}
+
+export interface ChatHistoryMessage {
+  id: string;
+  sender: "user" | "ai";
+  text: string;
+  timestamp: string;
 }
 
 export interface BackendSession {
   session_id: string;
   project_id: string | null;
+  user_id?: string | null;
   state_version: number;
   fsm_state: FsmState;
   export_status: ExportStatus;
@@ -276,6 +295,7 @@ export interface BackendSession {
   knowledge_hits: KnowledgeHit[];
   suggestion: SuggestionSummary | null;
   agent_runtime: AgentRuntimeSummary | null;
+  messages?: ChatHistoryMessage[];
   payment_willingness_99_rmb: boolean | "maybe_preview_first" | null;
   export_payload_stale: boolean;
   created_at: string;
@@ -292,7 +312,56 @@ export interface ProjectSummary {
 
 export interface BackendProject extends ProjectSummary {
   created_at: string;
+  user_id?: string | null;
   dashboard_snapshot: Record<string, DashboardField>;
+}
+
+export type UserRole = "admin" | "user";
+
+export interface UserRecord {
+  user_id: string;
+  email: string;
+  password_hash: string;
+  display_name: string;
+  role: UserRole;
+  export_credits: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublicUser {
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: UserRole;
+  export_credits: number;
+  created_at: string;
+}
+
+export interface AuthContext {
+  user: PublicUser;
+  auth_disabled: boolean;
+}
+
+export interface LicenseRecord {
+  code: string;
+  credits: number;
+  status: "active" | "redeemed" | "disabled";
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  redeemed_by: string | null;
+  redeemed_at: string | null;
+}
+
+export interface CreditTransaction {
+  id?: number;
+  user_id: string;
+  type: "signup_grant" | "redeem" | "export_debit" | "admin_grant";
+  credits_delta: number;
+  balance_after: number;
+  ref: string | null;
+  created_at: string;
 }
 
 export interface AdminRuntimeStatus {
