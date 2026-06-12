@@ -1,5 +1,12 @@
 # Seed Server Deployment
 
+> **SUPERSEDED (2026-06-12):** the authoritative deployment doc is now
+> [`docs/cloud-deployment-guide.md`](cloud-deployment-guide.md) — it covers the
+> commercial v1 (app-level JWT auth, export credits, LibreOffice-enabled API
+> image, simplified no-Basic-Auth Caddyfile) and includes a Codex CLI handoff
+> prompt. This file describes the older Basic-Auth seed-trial flow; where the
+> two conflict, the new guide wins.
+
 This is the recommended seed-user deployment path. The server does not clone or build the source repo. It only runs private GHCR images with Docker Compose and persists runtime data in Docker volumes.
 
 ## Target Shape

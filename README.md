@@ -126,10 +126,11 @@ Verify generated local vectors:
 npm run kb:verify
 ```
 
-For seed server deployment, see `docs/deployment.md`. For Windows/Linux/macOS
+For cloud server deployment (Docker, incl. a Codex CLI handoff prompt), see
+`docs/cloud-deployment-guide.md`. For Windows/Linux/macOS
 local deployment and testing, see `docs/local-deployment.md`. For seed-user
-trial guidance, see `docs/seed-user-trial.md`.
-For a VPS-side Codex CLI handoff prompt, see `docs/vps-codex-deployment-handoff.md`.
+trial guidance, see `docs/seed-user-trial.md`. Development retrospective and
+contributor tips live in `docs/development-notes.md`.
 
 Build seed-trial containers locally:
 
@@ -155,9 +156,10 @@ docker compose -f compose.seed.yml build
 │   │   └── templates.md
 │   ├── GOAL_MODE_PROMPT.md     # Copy-paste prompt to start a goal-mode session
 │   ├── export-payload-schema.md
-│   ├── deployment.md
+│   ├── cloud-deployment-guide.md  # Authoritative Docker deployment guide (+ Codex CLI prompt)
+│   ├── development-notes.md       # Commercial v1 retrospective + contributor map
+│   ├── deployment.md              # (superseded by cloud-deployment-guide.md)
 │   ├── seed-user-trial.md
-│   ├── vps-codex-deployment-handoff.md
 │   ├── tech-stack.md
 │   ├── roadmap.md
 │   ├── tasks.md

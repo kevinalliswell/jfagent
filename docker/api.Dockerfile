@@ -23,6 +23,12 @@ RUN npm run api:build
 
 FROM base AS runtime
 
+# LibreOffice (headless) powers the real PDF free-preview and DOCX visual QA;
+# Noto CJK fonts keep Chinese text from rendering as boxes in converted PDFs.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libreoffice-writer fonts-noto-cjk \
+  && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV="production"
 ENV HOST="0.0.0.0"
 ENV PORT="3000"
