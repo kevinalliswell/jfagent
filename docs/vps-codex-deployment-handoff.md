@@ -1,5 +1,9 @@
 # VPS Codex Deployment Handoff
 
+> **SUPERSEDED (2026-06-12):** use the Codex CLI prompt in
+> [`docs/cloud-deployment-guide.md`](cloud-deployment-guide.md) §9 instead;
+> this file predates app-level auth and the credit/license flow.
+
 This handoff is for a Codex CLI session running on the target VPS. Its job is to deploy the seed-user trial from private GHCR images. The VPS must not clone or receive the source repository.
 
 ## Current Release
