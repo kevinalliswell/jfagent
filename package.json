@@ -16,7 +16,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,js,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,js,json}\"",
     "test:ui": "node --import tsx --test tests/presalesCockpit.test.ts",
-    "test:logic": "npm run api:build && node --import tsx --test tests/backendDeterministicLogic.test.ts",
+    "test:logic": "npm run api:build && node --import tsx --test tests/backendDeterministicLogic.test.ts tests/rulesEngine.test.ts",
     "test": "npm run test:ui && npm run test:logic && node server-dist/smoke.js",
     "check": "npm run lint && npm run format:check && npm run build && npm run kb:verify && npm run test",
     "dev": "npm run kb:build && vite --host 0.0.0.0",

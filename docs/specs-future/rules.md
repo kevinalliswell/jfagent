@@ -1,10 +1,18 @@
 # Backend Expert System Rules
 
-> **STATUS: FUTURE / ASPIRATIONAL — NOT current behavior.** The real engine
-> triggers only ~2 hardcoded risks in `server/sessionService.ts`. There is no
-> multi-tier P0–P3 engine, no data-driven rules, and no remediation workflow.
-> Do not assume any rule here exists in code. See `docs/specs-future/README.md`
-> and `GOAL.md`.
+> **STATUS: LARGELY IMPLEMENTED (2026-06-12)** in `server/rulesEngine.ts`,
+> verified by `tests/rulesEngine.test.ts` (covers the Test Matrix below).
+> Implemented: UPS capacity engine, precision-AC cooling engine (incl. catalog
+> mapping and multi-unit fallback), battery-bank estimation, default-assumption
+> audit events, calculation status aggregation, Rule_Floor_Loading (P0),
+> Rule_Elevator_Height (P1), Rule_Budget_Mismatch (BOM×1.3 against the
+> internal reference estimate, with a 450k heuristic fallback when the BOM is
+> not estimable), agent_required_prompts, and forced chapter injection for the
+> structural-reinforcement chapter via `server/exportPayload.ts`.
+> Still FUTURE: per-field `ui_highlights` payloads, the P0 acknowledgement
+> checkbox, `alternative_plan_requirements` as structured output, and
+> user-overridable cooling catalogs. Where this document and the code differ,
+> the code wins — see `AGENTS.md` §2.
 
 ## Purpose
 

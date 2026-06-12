@@ -8,13 +8,30 @@ import {
   postSessionChat,
   postSessionOverride
 } from "./sessionService.js";
-import type { CreateProjectRequest, ErrorEnvelope } from "./types.js";
+import type { CreateProjectRequest, ErrorEnvelope, PublicUser } from "./types.js";
 import { createReadStream } from "node:fs";
 import { getRenderedAsset } from "./exportDocument.js";
 import { getKnowledgeAdminStatus, postKnowledgeUpload } from "./knowledgeAdmin.js";
 import { getAgentRuntimeStatus } from "./llmClient.js";
-import { createProject, getProject, listProjects } from "./projectService.js";
+import { canAccessProject, createProject, getProject, listProjects } from "./projectService.js";
 import { getDatabasePath, getKnowledgeUploadDir, getOutputDir } from "./runtimePaths.js";
+import {
+  AuthError,
+  ensureBootstrapAdmin,
+  generateLicenses,
+  getRegistrationMode,
+  grantCredits,
+  isAuthDisabled,
+  listAllLicenses,
+  listAllUsers,
+  localAdminUser,
+  loginUser,
+  redeemLicense,
+  registerUser,
+  resolveUser,
+  toPublicUser
+} from "./auth.js";
+import { getUserById } from "./persistence.js";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -88,6 +105,31 @@ function parseBoolean(value: string | null) {
   return value === "true" || value === "1" || value === "yes";
 }
 
+function bearerToken(request: IncomingMessage) {
+  const header = request.headers.authorization;
+  if (typeof header !== "string") return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * Resolve the request identity. When AUTH_DISABLED=1 every request acts as a
+ * synthetic local admin (single-operator mode); otherwise a valid Bearer JWT
+ * is required for product and admin routes.
+ */
+function resolveRequestUser(request: IncomingMessage): PublicUser | null {
+  if (isAuthDisabled()) return localAdminUser();
+  return resolveUser(bearerToken(request));
+}
+
+function refreshUser(user: PublicUser): PublicUser {
+  if (user.user_id === "local_admin") return user;
+  const fresh = getUserById(user.user_id);
+  return fresh ? toPublicUser(fresh) : user;
+}
+
+const openRoutes = new Set(["/api/health", "/api/auth/register", "/api/auth/login", "/api/auth/mode"]);
+
 async function route(request: IncomingMessage, response: ServerResponse) {
   const requestId = String(request.headers["x-request-id"] ?? randomUUID());
   const url = new URL(request.url ?? "/", "http://localhost");
@@ -99,6 +141,53 @@ async function route(request: IncomingMessage, response: ServerResponse) {
   }
 
   try {
+    if (request.method === "GET" && url.pathname === "/api/health") {
+      sendJson(response, 200, {
+        ok: true,
+        service: "jfagent-api",
+        status: "ok",
+        sessions: getSessionCount(),
+        auth_required: !isAuthDisabled(),
+        server_time: now()
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/auth/mode") {
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: {
+          auth_required: !isAuthDisabled(),
+          registration_mode: getRegistrationMode()
+        }
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/auth/register") {
+      const body = await readJsonBody(request);
+      const result = registerUser({
+        email: String(body.email ?? ""),
+        password: String(body.password ?? ""),
+        display_name: typeof body.display_name === "string" ? body.display_name : undefined
+      });
+      sendJson(response, 200, { ok: true, server_time: now(), data: result });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/auth/login") {
+      const body = await readJsonBody(request);
+      const result = loginUser({
+        email: String(body.email ?? ""),
+        password: String(body.password ?? "")
+      });
+      sendJson(response, 200, { ok: true, server_time: now(), data: result });
+      return;
+    }
+
+    // Asset downloads use unguessable capability URLs so <a href> works
+    // without an Authorization header.
     const assetMatch = url.pathname.match(/^\/api\/assets\/([^/]+)\/download$/);
     if (request.method === "GET" && assetMatch) {
       if (!sendAssetDownload(response, assetMatch[1])) {
@@ -113,13 +202,37 @@ async function route(request: IncomingMessage, response: ServerResponse) {
       return;
     }
 
-    if (request.method === "GET" && url.pathname === "/api/health") {
+    const user = resolveRequestUser(request);
+    if (!user && !openRoutes.has(url.pathname)) {
+      sendError(response, requestId, 401, "UNAUTHORIZED", "请先登录后再访问。");
+      return;
+    }
+
+    if (url.pathname.startsWith("/api/admin/") && user && user.role !== "admin") {
+      sendError(response, requestId, 403, "FORBIDDEN", "需要管理员权限。");
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/auth/me") {
       sendJson(response, 200, {
         ok: true,
-        service: "jfagent-api",
-        status: "ok",
-        sessions: getSessionCount(),
-        server_time: now()
+        server_time: now(),
+        data: { user: refreshUser(user as PublicUser), auth_required: !isAuthDisabled() }
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/auth/redeem") {
+      const body = await readJsonBody(request);
+      const currentUser = user as PublicUser;
+      if (currentUser.user_id === "local_admin") {
+        throw new AuthError("本地模式无需兑换激活码。", 400, "LOCAL_MODE");
+      }
+      const result = redeemLicense(currentUser.user_id, String(body.code ?? ""));
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: { ...result, user: refreshUser(currentUser) }
       });
       return;
     }
@@ -139,6 +252,10 @@ async function route(request: IncomingMessage, response: ServerResponse) {
         server_time: now(),
         data: {
           agent: getAgentRuntimeStatus(),
+          auth: {
+            auth_required: !isAuthDisabled(),
+            registration_mode: getRegistrationMode()
+          },
           storage: {
             database_path: getDatabasePath(),
             upload_dir: getKnowledgeUploadDir(),
@@ -159,13 +276,61 @@ async function route(request: IncomingMessage, response: ServerResponse) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/admin/users") {
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: { users: listAllUsers() }
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/users/grant") {
+      const body = await readJsonBody(request);
+      const userId = String(body.user_id ?? "");
+      const credits = Number(body.credits ?? 0);
+      const balance = grantCredits(userId, credits, "admin_panel");
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: { user_id: userId, balance_after: balance }
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/licenses") {
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: { licenses: listAllLicenses() }
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/licenses") {
+      const body = await readJsonBody(request);
+      const adminUser = user as PublicUser;
+      const licenses = generateLicenses({
+        count: Number(body.count ?? 1),
+        credits: Number(body.credits ?? 1),
+        note: typeof body.note === "string" ? body.note : undefined,
+        created_by: adminUser.user_id
+      });
+      sendJson(response, 200, {
+        ok: true,
+        server_time: now(),
+        data: { licenses }
+      });
+      return;
+    }
+
     const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
 
     if (request.method === "GET" && url.pathname === "/api/projects") {
       sendJson(response, 200, {
         ok: true,
         server_time: now(),
-        data: { projects: listProjects() }
+        data: { projects: listProjects(user) }
       });
       return;
     }
@@ -180,14 +345,14 @@ async function route(request: IncomingMessage, response: ServerResponse) {
       sendJson(response, 200, {
         ok: true,
         server_time: now(),
-        data: { project: createProject(name) }
+        data: { project: createProject(name, user) }
       });
       return;
     }
 
     if (request.method === "GET" && projectMatch) {
       const project = getProject(projectMatch[1]);
-      if (!project) {
+      if (!project || (user && !canAccessProject(project, user))) {
         sendError(response, requestId, 404, "PROJECT_NOT_FOUND", "The requested project does not exist.");
         return;
       }
@@ -204,7 +369,7 @@ async function route(request: IncomingMessage, response: ServerResponse) {
       if (!sessionId) throw new ApiValidationError("session_id is required.");
       sendJson(response, 200, {
         ok: true,
-        data: getSessionSnapshot(sessionId),
+        data: getSessionSnapshot(sessionId, user),
         server_time: now()
       });
       return;
@@ -212,28 +377,35 @@ async function route(request: IncomingMessage, response: ServerResponse) {
 
     if (request.method === "POST" && url.pathname === "/api/session/chat") {
       const body = await readJsonBody(request);
-      sendJson(response, 200, await postSessionChat(body as never));
+      sendJson(response, 200, await postSessionChat(body as never, user));
       return;
     }
 
     if (request.method === "POST" && url.pathname === "/api/session/override") {
       const body = await readJsonBody(request);
-      sendJson(response, 200, postSessionOverride(body as never));
+      sendJson(response, 200, postSessionOverride(body as never, user));
       return;
     }
 
     if (request.method === "GET" && url.pathname === "/api/session/export") {
-      const result = getSessionExport({
-        session_id: url.searchParams.get("session_id") ?? "",
-        payment_mode: (url.searchParams.get("payment_mode") ?? undefined) as never,
-        approved: parseBoolean(url.searchParams.get("approved"))
-      });
+      const result = getSessionExport(
+        {
+          session_id: url.searchParams.get("session_id") ?? "",
+          payment_mode: (url.searchParams.get("payment_mode") ?? undefined) as never,
+          approved: parseBoolean(url.searchParams.get("approved"))
+        },
+        user ? refreshUser(user) : null
+      );
       sendJson(response, result.status, result.body);
       return;
     }
 
     sendError(response, requestId, 404, "NOT_FOUND", `No route for ${request.method} ${url.pathname}`);
   } catch (error) {
+    if (error instanceof AuthError) {
+      sendError(response, requestId, error.status, error.code, error.message);
+      return;
+    }
     if (error instanceof ApiValidationError) {
       sendError(response, requestId, error.status, error.code, error.message);
       return;
@@ -249,6 +421,7 @@ async function route(request: IncomingMessage, response: ServerResponse) {
 }
 
 export function createApiServer() {
+  ensureBootstrapAdmin();
   return createServer((request, response) => {
     void route(request, response);
   });

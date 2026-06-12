@@ -1,41 +1,31 @@
 # JF Agent Workstation
 
-Local-first MVP for a future SaaS Data Center Pre-sales AI Agent. It helps construction integration teams convert messy machine-room project notes into structured pre-sales requirements, local knowledge citations, risk prompts, configuration suggestions, and a 99 RMB Word-export willingness flow.
+Commercial-ready Data Center Pre-sales AI Agent（机房售前智能体）. It helps construction integration teams convert messy machine-room project notes into structured pre-sales requirements, deterministic engineering calculations, internal cost estimates, risk prompts, knowledge citations, and exportable Word/PDF deliverables — with real accounts and a license-code monetization loop.
 
 ## Current Status
 
-This repository is currently a local-first MVP with a React workstation, switchable mock/backend session API adapter, a lightweight backend skeleton, and a local knowledge index.
-
-Long-term direction: SaaS.
+A deployable commercial v1: React workstation + Node/TypeScript API + SQLite, with app-level auth, export-credit billing, a deterministic expert engine, and real document generation. Mock mode remains as a browser-only demo.
 
 Implemented:
 
-- React/Vite chat and dashboard workstation.
-- FSM-style project intake flow.
-- Dashboard field extraction and manual override simulation.
-- Local knowledge ingestion for `.md`, `.txt`, `.docx`, and `.pdf`.
-- Quotation/BOQ ingestion for `.xlsx`, `.csv`, and `.tsv`.
-- Hybrid keyword/vector retrieval from generated knowledge chunks: browser-side in mock mode, backend-side in API mode.
-- Admin-only seed-trial knowledge upload through `?admin=1` in backend mode.
-- Docker Compose seed deployment with private GHCR images and Caddy HTTPS/Basic Auth.
-- Optional OpenAI-compatible backend agent for real pre-sales responses and low-precedence field candidates.
-- Backend/frontend runtime visibility for whether the latest answer used the real LLM path or deterministic fallback.
-- Local hashed vectors for knowledge chunks; no external embedding API.
-- BOQ/quotation summary panel in the dashboard.
-- Switchable frontend API client: default local mock mode, optional backend API mode.
-- Node/TypeScript backend API skeleton for session chat, dashboard override, export, and health checks.
-- `ExportPayloadV1` schema used by Word requirement-sheet rendering.
-- Real first-pass `.docx` generation from approved backend exports.
-- Risk and configuration suggestion mock logic.
-- 99 RMB payment-willingness modal for formal Word export. This is not real payment.
+- Account system: email+password registration/login (scrypt + JWT), admin/user roles, per-user project and session isolation, env-configurable bootstrap admin, open/closed registration modes, optional `AUTH_DISABLED=1` single-operator mode.
+- Monetization loop: free unlimited PDF preview; formal Word export consumes 1 export credit; admins generate single-use license codes (`JF-XXXXX-XXXXX`) in the admin panel and users redeem them in-app; all credit movements audited.
+- Deterministic expert engine (rules.md implemented): UPS capacity (redundancy factors + standard sizes), precision cooling (thermal density + safety margin + model catalog + N+1/2N units), battery-bank estimation, internal reference BOM cost estimate, and P0/P1 risk rules (floor loading, elevator transport, BOM×1.3 budget mismatch) with audit log and confirmed/provisional/blocked status.
+- Persistent multi-turn agent: chat history stored per session, restored in the UI after reload, and replayed (last 12 turns) to the OpenAI-compatible LLM together with engine outputs and required prompts.
+- Real first-pass `.docx` generation (cover, TOC, engine-backed chapters, risk register, BOM placeholders, internal estimate appendix) and real watermarked PDF free preview via LibreOffice.
+- React/Vite three-column presales cockpit with completeness/risk/evidence/delivery signals, calculation & estimate card, login screen, credits display, and redeem flow.
+- Local knowledge ingestion for `.md`, `.txt`, `.docx`, `.pdf`, `.xlsx`, `.csv`, `.tsv` with hybrid keyword/vector retrieval (9 seed files / 71 chunks covering GB50174 要点、UPS/电池、精密空调、消防动环布线装修、勘察清单、参考价格表).
+- Admin surface (`?admin=1`): knowledge upload + index rebuild, license generation, user/credit administration APIs, runtime status.
+- SQLite persistence for users, licenses, credit transactions, sessions (incl. messages), projects, export assets, knowledge uploads, and retrieval audit; Docker volume for `data/` so upgrades keep state.
+- Docker Compose deployment with private GHCR images and Caddy HTTPS.
 
-Not implemented yet:
+Not implemented yet (future phases):
 
-- Production-grade LLM orchestration, audit, and model governance.
-- Embedding/vector database retrieval.
-- Automated visual DOCX render QA without LibreOffice/`soffice`.
-- Real free-preview PDF generation.
-- Authentication, permissions, audit storage, and production billing.
+- Online payment provider integration (WeChat Pay/Alipay) — license codes are the current monetization path.
+- Real embedding model / external vector database (local hashed vectors stay).
+- Multi-tenant organizations, SSO, fine-grained RBAC.
+- Streaming chat responses.
+- OCR for scanned documents.
 
 ## Quick Start
 
@@ -108,15 +98,21 @@ In another terminal:
 npm run dev:backend
 ```
 
-Default frontend mode remains local mock API.
+Default frontend mode remains local mock API (demo, no login). Backend mode is the real product and shows a login screen; the first registered account becomes admin.
 
-Enable the optional real backend agent:
+Configure the backend (LLM + auth + billing):
 
 ```bash
 cp .env.api.example .env.api
 ```
 
-Then set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`. For xingwan/New API style relay platforms, use `OPENAI_BASE_URL=https://xingwan.store/v1` unless the provider console shows a different base URL.
+Key variables (see the example file for full comments):
+
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` — any OpenAI-compatible provider; xingwan/New API relays use `OPENAI_BASE_URL=https://xingwan.store/v1`.
+- `ADMIN_EMAIL` / `ADMIN_PASSWORD` — bootstrap admin created at startup.
+- `REGISTRATION_MODE` — `open` (default) or `closed`.
+- `FREE_EXPORT_CREDITS` — credits granted to each new user (default 1).
+- `AUTH_DISABLED=1` — single-operator local mode without login (do not use in production).
 
 Rebuild the local knowledge index:
 

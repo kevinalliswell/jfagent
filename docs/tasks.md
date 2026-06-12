@@ -5,53 +5,37 @@ Working task ledger. The authority order is `GOAL.md` > this file > the rest
 
 ## Current Objective
 
-See `GOAL.md`. We are in **Phase A: Stabilize & Consolidate**, then Phase B
-drives the small paid pilot (D-020). Do not start work outside the current
-objective. Every active task below maps to a `GOAL.md` checkbox.
+See `GOAL.md`. We are in **COMMERCIAL LAUNCH**: the commercial v1 build landed
+2026-06-12 on owner direction (skip-ahead past the old Phase A/B sequencing).
+The remaining work is owner-gated deployment and first real paid usage.
 
-## Active Board — Phase A (Stabilize & Consolidate)
-
-| ID    | Priority | Status      | Task                                                                 | GOAL link |
-| ----- | -------- | ----------- | -------------------------------------------------------------------- | --------- |
-| T-026 | P0       | Done        | One-command green gate: `requirements.txt` + `scripts/setup-env.sh` + SessionStart hook so `npm run check` (incl. DOCX export smoke) passes on a fresh container. | A1 |
-| T-027 | P0       | Done        | Single source of truth: `GOAL.md` north star, `AGENTS.md` naming fix, doc status banners, consolidated ledger. | A2/A3/A4 |
-| T-028 | P1       | Done        | Document mock-vs-backend parity in `docs/architecture.md` (intentional differences + 5 drift items to reconcile). | A5 |
-| T-029 | P1       | Done        | Add tests for core deterministic logic: field extraction, risk triggering, export-payload assembly (beyond the 3 cockpit tests). | A6 |
-| T-030 | P2       | Done        | Cleanup follow-up: extract the FUTURE design specs (`rules.md`, `knowledge_base.md`, `templates.md`) out of RAG ingestion in `scripts/build-knowledge-index.mjs`, then physically move them under `docs/specs-future/`. Update the script + `docker/api.Dockerfile`; re-run `kb:build`/`kb:verify`. | A3 |
-
-## Backlog — Phase B (Paid Pilot, AFTER Phase A is green)
-
-Phase B splits by ownership. Codex drives the **coding** tasks autonomously; the
-**owner action items** are gated on real-world resources Codex cannot provide
-(server, credentials, internal documents, a real customer). See
-`docs/PHASE_B_OWNER_CHECKLIST.md` for what the owner must prepare.
-
-### Phase B — Codex coding tasks (agent-doable now)
+## Active Board — Commercial Launch (2026-06-12)
 
 | ID    | Priority | Status | Task                                                                 | GOAL link |
 | ----- | -------- | ------ | -------------------------------------------------------------------- | --------- |
-| T-036 | P1       | Done   | Reconciled the 5 mock/backend drift items from T-028 (budget risk, override safety for listed-but-uninitialized fields, risk-trigger shape, `buildSuggestion` wording, FSM/state derivation). Added regression coverage and kept both verification gates green. | B reliability |
-| T-035 | P2       | Done   | Installed LibreOffice/`soffice`, taught the backend export path to emit PDF/PNG visual-QA checks when available, surfaced dependency status in `scripts/setup-env.sh`, and verified `npm run check` + `npm run api:smoke` to green. | B support |
-
-### Phase B — Owner action items (resource/decision gated; Codex can only prep)
-
-| ID    | Priority | Owner does | Codex can prep |
-| ----- | -------- | ---------- | -------------- |
-| T-031 | P0       | Deploy seed stack: provide server/domain/DNS, GHCR read token, Caddy auth hashes, optional OpenAI creds; decide how images get published (merge to `main` triggers the GHCR build). | A pre-deploy runbook/preflight; verify `compose.seed.yml` builds; review `.env` templates. See `docs/deployment.md`, `docs/local-deployment.md`, and `docs/vps-codex-deployment-handoff.md`. |
-| T-032 | P0       | Supply 10–20 cleaned/desensitized internal docs; upload via `?admin=1`. | Verify ingestion formats + that uploads appear in `knowledge_hits`. |
-| T-033 | P0       | Provide 3–5 real project descriptions; judge the cockpit→chat→export flow. | Capture a friction-reduction template/checklist to fill in. |
-| T-034 | P0       | Provide a real external sample customer; judge the output customer-ready. | Help refine the export/`templates.md` mapping if the sheet needs changes. |
+| T-040 | P0       | Done   | Deterministic expert engine (`server/rulesEngine.ts`): UPS/cooling/battery sizing, internal BOM cost estimate, P0/P1 risk rules (BOM×1.3 budget mismatch), audit log; engine now drives risks/suggestion/export numbers. 14 spec-matrix tests in `tests/rulesEngine.test.ts`. | Shipped v1 |
+| T-041 | P0       | Done   | Account system: scrypt+JWT auth, admin/user roles, per-user session/project isolation, bootstrap admin via env, `REGISTRATION_MODE`, `AUTH_DISABLED` local mode. Smoke covers 401/403/cross-user isolation. | Shipped v1 |
+| T-042 | P0       | Done   | Monetization loop: export credits, license codes (admin generate / user redeem), `credit_transactions` audit, 402 `NO_CREDITS` gate, admin grant endpoint, frontend credits badge + redeem modal + in-modal redeem-and-retry. | Shipped v1 |
+| T-043 | P1       | Done   | Multi-turn agent: session `messages` persisted/restored/replayed (last 12) to the LLM with engine outputs + required prompts; richer extraction (quantifier fix for "12个机柜", 2N/N+1, 单柜功率, 预算区间, 服务器台数); upgraded售前总监 system prompt. | Shipped v1 |
+| T-044 | P1       | Done   | Real watermarked PDF free preview (docx→soffice→PDF) with simulated fallback; internal estimate appendix (7.2, 非正式报价) in formal DOCX; preview no longer flips export status. | Shipped v1 |
+| T-045 | P1       | Done   | Seed knowledge expanded to 9 files / 71 chunks: GB50174 要点、UPS/电池配置、精密空调选型、消防动环布线装修、现场勘察清单、设备参考价格表 CSV. | Shipped v1 |
+| T-046 | P1       | Done   | Deployment hardening: `jfagent_data` SQLite volume in compose, `.env.api.example` auth/billing variables, admin license panel under `?admin=1`. | Shipped v1 |
+| T-047 | P0       | Open   | OWNER: deploy the stack, fill `.env.api` (`ADMIN_*`, `OPENAI_*`), upload 10–20 internal docs, generate codes, run the first external register→redeem→export loop with real money offline. | Phase DoD |
+| T-048 | P2       | Open   | Next-phase backlog candidates (pick AFTER first real usage): streaming chat, real embeddings/vector DB, online payment provider, org-level multi-tenant, OCR. | Next phase |
 
 ## Completed (history — condensed)
 
-T-001…T-025 are done. They built: the React MVP and V2 three-column cockpit;
+T-001…T-036 are done. They built: the React MVP and V2 three-column cockpit;
 local knowledge index with MD/TXT/DOCX/PDF + XLSX/CSV/TSV ingestion; local hashed
 vectors + hybrid retrieval; switchable mock/backend session API; Node/TS backend
 with sessions, projects, SQLite persistence, export-payload schema + first-pass
 `.docx` rendering; admin knowledge upload; Docker/GHCR/Caddy seed deployment;
-OpenAI-compatible real-agent v1 with runtime visibility; and persisted-session
-state reconciliation. Full detail lives in git history and `docs/decisions.md`
-(D-001…D-023).
+OpenAI-compatible real-agent v1 with runtime visibility; persisted-session
+state reconciliation; the Phase A stabilization pass; and mock/backend drift
+reconciliation. T-040…T-046 (2026-06-12) shipped the commercial v1: expert
+engine, accounts, credits/licenses, multi-turn persistence, real PDF preview,
+knowledge expansion, deployment hardening. Full detail lives in git history and
+`docs/decisions.md` (D-001…D-035).
 
 ## Open Questions
 

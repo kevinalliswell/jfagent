@@ -14,6 +14,7 @@ services:
       PORT: 3000
       PYTHON_BIN: /opt/jfagent-venv/bin/python
     volumes:
+      - jfagent_data:/app/data
       - jfagent_knowledge_uploads:/app/knowledge/uploads
       - jfagent_output:/app/output
     expose:
@@ -41,6 +42,8 @@ services:
       - jfagent_caddy_config:/config
 
 volumes:
+  jfagent_data:
+    name: jfagent_data
   jfagent_knowledge_uploads:
     name: jfagent_knowledge_uploads
   jfagent_output:

@@ -1,6 +1,7 @@
 import type {
   AgentRuntimeSummary,
   BackendSession,
+  ChatHistoryMessage,
   ChatRequest,
   ChatResponseData,
   DashboardField,
@@ -10,25 +11,29 @@ import type {
   FsmState,
   OverrideRequest,
   OverrideResponseData,
-  RiskFlag,
-  SuggestionSummary,
+  PublicUser,
   SessionSnapshotData,
   SessionSnapshotSession,
-  SuccessEnvelope
+  SuccessEnvelope,
+  SuggestionSummary
 } from "./types.js";
 import { buildExportPayload } from "./exportPayload.js";
-import { renderExportDocx } from "./exportDocument.js";
+import { renderExportDocx, renderExportPreviewPdf } from "./exportDocument.js";
 import { generateAgentLlmResult } from "./llmClient.js";
 import { searchKnowledge } from "./localVectorSearch.js";
 import { countSessions, loadSession, logRetrievalAudit, saveSession } from "./persistence.js";
+import { buildSuggestionFromEvaluation, evaluateProjectRules, type EngineEvaluation } from "./rulesEngine.js";
+import { debitExportCredit } from "./auth.js";
 import {
   buildProjectContext,
+  canAccessProject,
   getProject,
   linkSessionToProject,
   syncProjectFromSession
 } from "./projectService.js";
 
 const sessions = new Map<string, BackendSession>();
+const MAX_PERSISTED_MESSAGES = 200;
 
 const numericFields = new Set([
   "room_area_m2",
@@ -63,34 +68,6 @@ const editableFields = new Set([
 
 const llmProtectedSources = new Set(["dashboard_edit", "user_message", "upload", "button_chip"]);
 
-const riskFloorLoading: RiskFlag = {
-  id: "RULE_FLOOR_LOADING",
-  legacy_id: "ERR_LOAD",
-  level: "P0_BLOCKER",
-  text: "机房位于二层及以上，且 UPS 后备时间达到 120 分钟，需优先复核楼板承重、运输路线和加固方案。",
-  blocking: true,
-  dismissible: false,
-  trigger_fields: ["room_floor", "ups_backup_time_minutes"]
-};
-
-const riskElevatorHeight: RiskFlag = {
-  id: "RULE_ELEVATOR_HEIGHT",
-  level: "P1_HIGH",
-  text: "二层及以上机房需核实电梯高度、门洞尺寸和转弯半径，必要时提前规划吊装与搬运方案。",
-  blocking: false,
-  dismissible: false,
-  trigger_fields: ["room_floor"]
-};
-
-const riskBudgetMismatch: RiskFlag = {
-  id: "RULE_BUDGET_MISMATCH",
-  level: "P1_HIGH",
-  text: "当前预算可能低于设备与施工综合成本安全线，建议同时准备可靠性优先和预算优先两档方案。",
-  blocking: false,
-  dismissible: false,
-  trigger_fields: ["budget_range_high_rmb"]
-};
-
 function now() {
   return new Date().toISOString();
 }
@@ -113,6 +90,13 @@ function sessionNotFoundError() {
   const error = new ApiValidationError("session_id was not found.");
   error.status = 404;
   error.code = "SESSION_NOT_FOUND";
+  return error;
+}
+
+function forbiddenError(message = "You do not have access to this resource.") {
+  const error = new ApiValidationError(message);
+  error.status = 403;
+  error.code = "FORBIDDEN";
   return error;
 }
 
@@ -139,6 +123,10 @@ function cloneAgentRuntime(agentRuntime: AgentRuntimeSummary | null | undefined)
   return agentRuntime ? { ...agentRuntime } : null;
 }
 
+function cloneMessages(messages: ChatHistoryMessage[] | undefined) {
+  return (messages ?? []).map((message) => ({ ...message }));
+}
+
 function toSessionSnapshotSession(session: BackendSession): SessionSnapshotSession {
   return {
     session_id: session.session_id,
@@ -150,7 +138,8 @@ function toSessionSnapshotSession(session: BackendSession): SessionSnapshotSessi
     triggered_risks: cloneTriggeredRisks(session.triggered_risks),
     knowledge_hits: cloneKnowledgeHits(session.knowledge_hits),
     suggestion: cloneSuggestion(session.suggestion),
-    agent_runtime: cloneAgentRuntime(session.agent_runtime)
+    agent_runtime: cloneAgentRuntime(session.agent_runtime),
+    messages: cloneMessages(session.messages)
   };
 }
 
@@ -219,12 +208,26 @@ function displayForField(code: string, value: string | number | null) {
   if (code === "budget_range_high_rmb" && typeof value === "number") return `${Math.round(value / 10000)} 万`;
   if (code === "customer_industry" && value === "medical") return "医疗";
   if (code === "customer_industry" && value === "education") return "教育";
+  if (code === "customer_industry" && value === "government") return "政务";
   return String(value);
 }
 
-function loadOrCreateSession(sessionId: string, projectId: string | null = null) {
-  if (projectId && !getProject(projectId)) {
-    throw projectNotFoundError();
+function canAccessSession(session: BackendSession, user: PublicUser | null) {
+  if (!user) return true;
+  if (user.role === "admin") return true;
+  if (!session.user_id) return true;
+  return session.user_id === user.user_id;
+}
+
+function loadOrCreateSession(
+  sessionId: string,
+  projectId: string | null = null,
+  user: PublicUser | null = null
+) {
+  if (projectId) {
+    const project = getProject(projectId);
+    if (!project) throw projectNotFoundError();
+    if (user && !canAccessProject(project, user)) throw forbiddenError();
   }
   let existing = sessions.get(sessionId);
   if (!existing) {
@@ -239,27 +242,31 @@ function loadOrCreateSession(sessionId: string, projectId: string | null = null)
     }
   }
   if (existing) {
+    if (!canAccessSession(existing, user)) throw forbiddenError();
     const normalized = reconcileDerivedSessionState(existing);
     if (existing.project_id && projectId && existing.project_id !== projectId) {
       throw projectSessionBoundError();
+    }
+    let changed = normalized;
+    if (!existing.user_id && user) {
+      existing.user_id = user.user_id;
+      changed = true;
     }
     if (!existing.project_id && projectId) {
       existing.project_id = projectId;
       linkSessionToProject(projectId, existing.session_id);
       existing.updated_at = now();
-      saveSession(existing);
+      changed = true;
     }
-    if (normalized) {
+    if (changed) {
       saveSession(existing);
-    }
-    if (existing.project_id && projectId === null) {
-      return existing;
     }
     return existing;
   }
   const session: BackendSession = {
     session_id: sessionId,
     project_id: projectId,
+    user_id: user?.user_id ?? null,
     state_version: 1,
     fsm_state: "S0_IDLE",
     export_status: "draft",
@@ -268,6 +275,7 @@ function loadOrCreateSession(sessionId: string, projectId: string | null = null)
     knowledge_hits: [],
     suggestion: null,
     agent_runtime: null,
+    messages: [],
     payment_willingness_99_rmb: null,
     export_payload_stale: false,
     created_at: now(),
@@ -280,21 +288,21 @@ function loadOrCreateSession(sessionId: string, projectId: string | null = null)
 }
 
 function extractNumber(input: string, fallback: number | null = null) {
-  const match = input.match(/\d+/);
+  const match = input.match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : fallback;
 }
 
 function firstNumberNear(text: string, keywords: string[]) {
   for (const keyword of keywords) {
     const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const beforeKeyword = text.match(new RegExp(`(\\d+)\\s*${escapedKeyword}`));
+    const beforeKeyword = text.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*[个台套位]?\\s*${escapedKeyword}`));
     if (beforeKeyword) return Number(beforeKeyword[1]);
-    const afterKeyword = text.match(new RegExp(`${escapedKeyword}\\s*(\\d+)`));
+    const afterKeyword = text.match(new RegExp(`${escapedKeyword}\\s*(\\d+(?:\\.\\d+)?)`));
     if (afterKeyword) return Number(afterKeyword[1]);
     const index = text.indexOf(keyword);
     if (index >= 0) {
       const windowText = text.slice(Math.max(0, index - 6), index + keyword.length + 10);
-      const match = windowText.match(/\d+/);
+      const match = windowText.match(/\d+(?:\.\d+)?/);
       if (match) return Number(match[0]);
     }
   }
@@ -343,41 +351,19 @@ function normalizeAgentCandidateValue(fieldCode: string, value: string | number 
 
   const normalized = typeof value === "number" ? value : extractNumber(String(value), null);
   if (normalized === null) return null;
-  if (fieldCode === "budget_range_high_rmb" && normalized < 1000) return normalized * 10000;
+  if ((fieldCode === "budget_range_high_rmb" || fieldCode === "budget_range_low_rmb") && normalized < 1000) {
+    return normalized * 10000;
+  }
   return normalized;
 }
 
-function buildSuggestion(rackCount: number, stale = false): SuggestionSummary {
-  const itLoad = rackCount * 3;
-  const upsRaw = itLoad * 1.25;
-  const upsCapacityKva = upsRaw <= 40 ? 40 : Math.ceil(upsRaw / 20) * 20;
-  const coolingModelKw = rackCount <= 12 ? 40 : 60;
-
-  return {
-    upsCapacityKva,
-    batteryRuntimeMinutes: 120,
-    coolingModelKw,
-    coolingRedundancy: "N+1",
-    pduNote: `${rackCount}台机柜建议按A/B路PDU预留，配电柜输出回路待深化。`,
-    structuralNote: "长延时电池方案需复核楼板承重与运输路线。",
-    stale
-  };
+function evaluateSessionRules(session: BackendSession): EngineEvaluation {
+  return evaluateProjectRules(session.dashboard_fields);
 }
 
-function buildSuggestionForSession(session: BackendSession) {
-  const rackCount = Number(session.dashboard_fields.rack_count?.value || 0);
-  return rackCount ? buildSuggestion(rackCount, Boolean(session.export_payload_stale)) : null;
-}
-
-function evaluateRisks(session: BackendSession) {
-  const floor = Number(session.dashboard_fields.room_floor?.value ?? 0);
-  const backup = Number(session.dashboard_fields.ups_backup_time_minutes?.value ?? 0);
-  const budget = Number(session.dashboard_fields.budget_range_high_rmb?.value ?? 0);
-  const risks: RiskFlag[] = [];
-  if (floor >= 2 && backup >= 120) risks.push(riskFloorLoading);
-  if (floor >= 2) risks.push(riskElevatorHeight);
-  if (budget > 0 && budget < 450000) risks.push(riskBudgetMismatch);
-  return risks;
+function buildSuggestionForSession(session: BackendSession, evaluation?: EngineEvaluation) {
+  const result = evaluation ?? evaluateSessionRules(session);
+  return buildSuggestionFromEvaluation(result, Boolean(session.export_payload_stale));
 }
 
 function inferState(session: BackendSession): { fsm_state: FsmState; export_status: ExportStatus } {
@@ -416,13 +402,20 @@ function reconcileDerivedSessionState(session: BackendSession) {
     changed = true;
   }
 
-  const nextSuggestion = buildSuggestionForSession(session);
+  if (!Array.isArray(session.messages)) {
+    session.messages = [];
+    changed = true;
+  }
+
+  const evaluation = evaluateSessionRules(session);
+
+  const nextSuggestion = buildSuggestionForSession(session, evaluation);
   if (signature(session.suggestion) !== signature(nextSuggestion)) {
     session.suggestion = nextSuggestion;
     changed = true;
   }
 
-  const nextRisks = evaluateRisks(session);
+  const nextRisks = evaluation.risk_flags;
   if (signature(session.triggered_risks) !== signature(nextRisks)) {
     session.triggered_risks = nextRisks;
     changed = true;
@@ -443,13 +436,40 @@ function reconcileDerivedSessionState(session: BackendSession) {
   return changed;
 }
 
-function fallbackAgentResponse(session: BackendSession) {
+function appendSessionMessage(session: BackendSession, sender: "user" | "ai", text: string) {
+  if (!Array.isArray(session.messages)) session.messages = [];
+  session.messages.push({
+    id: `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    sender,
+    text,
+    timestamp: now()
+  });
+  if (session.messages.length > MAX_PERSISTED_MESSAGES) {
+    session.messages = session.messages.slice(-MAX_PERSISTED_MESSAGES);
+  }
+}
+
+function fallbackAgentResponse(session: BackendSession, evaluation: EngineEvaluation) {
   const hasScale = Boolean(session.dashboard_fields.rack_count?.value);
+  const promptHint = evaluation.agent_required_prompts[0];
+  if (!hasScale) {
+    return {
+      aiResponse: "已收到项目线索。现在还差一个最影响方案和报价的规模口径：大概多少机柜或服务器？",
+      quickReplies: ["计划放置 10 个标准机柜", "不确定，按面积估算"]
+    };
+  }
+  const suggestion = session.suggestion;
+  const sizingLine = suggestion
+    ? `按当前口径初步测算：总IT负载约 ${suggestion.totalItLoadKw ?? "-"}kW，UPS 建议 ${suggestion.upsCapacityKva}kVA，精密空调按 ${suggestion.coolingModelKw}kW 机型 ${suggestion.coolingUnitCount ?? "-"} 台（${suggestion.coolingRedundancy}）。`
+    : "当前已经形成初步规模口径。";
+  const estimateLine = suggestion?.estimatedCostLowRmb
+    ? `内部参考估算区间约 ${Math.round((suggestion.estimatedCostLowRmb ?? 0) / 10000)}-${Math.round((suggestion.estimatedCostHighRmb ?? 0) / 10000)} 万（非正式报价）。`
+    : "";
   return {
-    aiResponse: hasScale
-      ? "已收到项目线索，当前已经形成初步规模口径。接下来建议补充预算、品牌偏好或交付时间。"
-      : "已收到项目线索。现在还差一个最影响方案和报价的规模口径：大概多少机柜或服务器？",
-    quickReplies: hasScale ? ["整理交付稿", "补充项目预算"] : ["计划放置 10 个标准机柜", "不确定，按面积估算"]
+    aiResponse: [sizingLine, estimateLine, promptHint ?? "接下来建议补充预算、品牌偏好或交付时间。"]
+      .filter(Boolean)
+      .join(""),
+    quickReplies: ["整理交付稿", "补充项目预算"]
   };
 }
 
@@ -484,25 +504,18 @@ function applyAgentFieldCandidates(
   return patches;
 }
 
-export async function postSessionChat(request: ChatRequest) {
-  if (!request.session_id) throw new ApiValidationError("session_id is required.");
-  if (!request.content?.trim()) throw new ApiValidationError("content is required.");
-  if (!["text", "voice", "file"].includes(request.message_type)) {
-    throw new ApiValidationError("message_type must be text, voice, or file.");
-  }
-
-  const session = loadOrCreateSession(request.session_id, request.project_id ?? null);
-  const text = request.content.trim();
+function applyDeterministicExtraction(session: BackendSession, text: string) {
   const patches: FieldPatch[] = [];
-  const knowledgeHits = searchKnowledge(text, 3);
 
-  const customerMatch = text.match(/某?[\u4e00-\u9fa5A-Za-z0-9]{1,12}(医院|学校|中心|公司|工厂|园区)/);
+  const customerMatch = text.match(/某?[一-龥A-Za-z0-9]{1,12}(医院|学校|中心|公司|工厂|园区)/);
   if (customerMatch)
     patches.push(makePatch(session, "customer_name", customerMatch[0], "user_message", 0.86));
   if (/医院/.test(text))
     patches.push(makePatch(session, "customer_industry", "medical", "user_message", 0.88));
-  if (/学校/.test(text))
+  if (/学校|大学|学院/.test(text))
     patches.push(makePatch(session, "customer_industry", "education", "user_message", 0.88));
+  if (/政务|政府|机关/.test(text))
+    patches.push(makePatch(session, "customer_industry", "government", "user_message", 0.88));
 
   const projectType = extractProjectType(text);
   if (projectType) patches.push(makePatch(session, "project_type", projectType, "user_message", 0.9));
@@ -521,24 +534,93 @@ export async function postSessionChat(request: ChatRequest) {
 
   const rackCount = firstNumberNear(text, ["机柜", "柜子", "rack"]);
   if (rackCount) patches.push(makePatch(session, "rack_count", rackCount, "user_message", 0.9));
+
+  const serverMatch = text.match(/(\d+)\s*台(?:服务器)/);
+  if (serverMatch)
+    patches.push(makePatch(session, "server_count", Number(serverMatch[1]), "user_message", 0.9));
+
+  const avgPowerMatch = text.match(/(?:每柜|单柜|每个机柜)[^0-9]{0,6}(\d+(?:\.\d+)?)\s*(?:kw|千瓦)/i);
+  if (avgPowerMatch) {
+    patches.push(makePatch(session, "avg_power_per_rack_kw", Number(avgPowerMatch[1]), "user_message", 0.92));
+  }
+
+  if (/2N/i.test(text)) {
+    patches.push(makePatch(session, "redundancy_mode", "2N", "user_message", 0.9));
+  } else if (/N\s*\+\s*1/i.test(text)) {
+    patches.push(makePatch(session, "redundancy_mode", "N+1", "user_message", 0.9));
+  }
+
   if (/国产/.test(text))
     patches.push(makePatch(session, "brand_preference", "国产优先", "user_message", 0.88));
 
-  const budgetWan = /预算|万|钱/.test(text) ? firstNumberNear(text, ["预算", "万", "钱"]) : null;
-  if (budgetWan)
-    patches.push(makePatch(session, "budget_range_high_rmb", budgetWan * 10000, "user_message", 0.85));
+  const budgetRangeMatch = text.match(/预算[^0-9]{0,6}(\d+)\s*[-~到至]\s*(\d+)\s*万/);
+  if (budgetRangeMatch) {
+    patches.push(
+      makePatch(session, "budget_range_low_rmb", Number(budgetRangeMatch[1]) * 10000, "user_message", 0.88)
+    );
+    patches.push(
+      makePatch(session, "budget_range_high_rmb", Number(budgetRangeMatch[2]) * 10000, "user_message", 0.88)
+    );
+  } else {
+    const budgetWan = /预算|万|钱/.test(text) ? firstNumberNear(text, ["预算", "万", "钱"]) : null;
+    if (budgetWan)
+      patches.push(makePatch(session, "budget_range_high_rmb", budgetWan * 10000, "user_message", 0.85));
+  }
+
+  return patches;
+}
+
+function engineSummaryForLlm(evaluation: EngineEvaluation) {
+  return {
+    calculation_status: evaluation.calculation_status,
+    total_it_load_kw: evaluation.ups.total_it_load_kw,
+    recommended_ups_capacity_kva: evaluation.ups.recommended_ups_capacity_kva,
+    recommended_precision_ac: evaluation.cooling.recommended_precision_ac_model_kw
+      ? `${evaluation.cooling.recommended_precision_ac_model_kw}kW × ${evaluation.cooling.total_unit_count} 台（${evaluation.cooling.cooling_redundancy}）`
+      : null,
+    battery_estimate: evaluation.battery.battery_count
+      ? `${evaluation.battery.battery_spec} 约 ${evaluation.battery.battery_count} 只`
+      : null,
+    internal_estimate_range_rmb:
+      evaluation.bom_estimate.low_rmb && evaluation.bom_estimate.high_rmb
+        ? `${evaluation.bom_estimate.low_rmb}-${evaluation.bom_estimate.high_rmb}`
+        : null,
+    estimate_disclaimer: "内部参考估算，非正式报价",
+    budget_floor_rmb: evaluation.bom_estimate.budget_floor_rmb
+  };
+}
+
+export async function postSessionChat(request: ChatRequest, user: PublicUser | null = null) {
+  if (!request.session_id) throw new ApiValidationError("session_id is required.");
+  if (!request.content?.trim()) throw new ApiValidationError("content is required.");
+  if (!["text", "voice", "file"].includes(request.message_type)) {
+    throw new ApiValidationError("message_type must be text, voice, or file.");
+  }
+
+  const session = loadOrCreateSession(request.session_id, request.project_id ?? null, user);
+  const text = request.content.trim();
+  const knowledgeHits = searchKnowledge(text, 3);
+
+  appendSessionMessage(session, "user", text);
+  const historyBeforeReply = (session.messages ?? []).slice(0, -1).slice(-12);
+
+  const patches = applyDeterministicExtraction(session, text);
 
   session.knowledge_hits = knowledgeHits;
   logRetrievalAudit(session.session_id, text, knowledgeHits);
   reconcileDerivedSessionState(session);
 
-  const fallback = fallbackAgentResponse(session);
+  const evaluation = evaluateSessionRules(session);
+  const fallback = fallbackAgentResponse(session, evaluation);
   const llmResult = await generateAgentLlmResult({
     userText: text,
     session,
     patches,
     knowledgeHits,
-    risks: session.triggered_risks
+    risks: session.triggered_risks,
+    history: historyBeforeReply.map((message) => ({ sender: message.sender, text: message.text })),
+    engineSummary: engineSummaryForLlm(evaluation),
+    requiredPrompts: evaluation.agent_required_prompts
   });
   session.agent_runtime = cloneAgentRuntime(llmResult.runtime);
   const llmPatches = llmResult.output
@@ -547,6 +629,8 @@ export async function postSessionChat(request: ChatRequest) {
   patches.push(...llmPatches);
 
   reconcileDerivedSessionState(session);
+  const aiResponse = llmResult.output?.ai_response ?? fallback.aiResponse;
+  appendSessionMessage(session, "ai", aiResponse);
   session.state_version += 1;
   session.updated_at = now();
   if (session.project_id) {
@@ -555,7 +639,7 @@ export async function postSessionChat(request: ChatRequest) {
   saveSession(session);
 
   const data: ChatResponseData = {
-    ai_response: llmResult.output?.ai_response ?? fallback.aiResponse,
+    ai_response: aiResponse,
     quick_replies: llmResult.output?.quick_replies.length
       ? llmResult.output.quick_replies
       : fallback.quickReplies,
@@ -567,7 +651,7 @@ export async function postSessionChat(request: ChatRequest) {
     state: {
       fsm_state: session.fsm_state,
       export_status: session.export_status,
-      calculation_status: "provisional"
+      calculation_status: session.suggestion?.calculationStatus ?? "provisional"
     },
     suggestion: session.suggestion,
     agent_runtime: cloneAgentRuntime(session.agent_runtime) ?? llmResult.runtime
@@ -576,20 +660,24 @@ export async function postSessionChat(request: ChatRequest) {
   return response(session, data);
 }
 
-export function postSessionOverride(request: OverrideRequest) {
+export function postSessionOverride(request: OverrideRequest, user: PublicUser | null = null) {
   if (!request.session_id) throw new ApiValidationError("session_id is required.");
   if (!request.field_code) throw new ApiValidationError("field_code is required.");
   if (!editableFields.has(request.field_code)) {
     throw new ApiValidationError(`field_code is not editable: ${request.field_code}`);
   }
 
-  const session = loadOrCreateSession(request.session_id);
+  const session = loadOrCreateSession(request.session_id, null, user);
   const oldValue = session.dashboard_fields[request.field_code]?.value ?? null;
   let normalizedValue: string | number | null = request.value.trim() || null;
 
   if (numericFields.has(request.field_code)) {
     normalizedValue = normalizedValue === null ? null : Number(extractNumber(String(normalizedValue), 0));
-    if (request.field_code === "budget_range_high_rmb" && normalizedValue && normalizedValue < 1000) {
+    if (
+      (request.field_code === "budget_range_high_rmb" || request.field_code === "budget_range_low_rmb") &&
+      normalizedValue &&
+      normalizedValue < 1000
+    ) {
       normalizedValue = normalizedValue * 10000;
     }
   }
@@ -597,13 +685,14 @@ export function postSessionOverride(request: OverrideRequest) {
   makePatch(session, request.field_code, normalizedValue, "dashboard_edit", 1, false);
   session.export_payload_stale = true;
   reconcileDerivedSessionState(session);
+  const fieldLabel = session.dashboard_fields[request.field_code]?.label ?? request.field_code;
+  appendSessionMessage(session, "ai", `已更新「${fieldLabel}」，后续方案建议和交付整理会按这个口径继续。`);
   session.state_version += 1;
   session.updated_at = now();
   if (session.project_id) {
     syncProjectFromSession(session.project_id, session);
   }
   saveSession(session);
-  const fieldLabel = session.dashboard_fields[request.field_code]?.label ?? request.field_code;
 
   const data: OverrideResponseData = {
     sync_status: "synced",
@@ -616,9 +705,10 @@ export function postSessionOverride(request: OverrideRequest) {
     llm_context_injection_id: `ctxinj_${Date.now()}`,
     export_payload_stale: true,
     recomputed_outputs: {
-      total_it_load_kw: Number(session.dashboard_fields.rack_count?.value || 0) * 3,
+      total_it_load_kw: session.suggestion?.totalItLoadKw ?? null,
       recommended_ups_capacity_kva: session.suggestion?.upsCapacityKva ?? null,
-      recommended_precision_ac_model_kw: session.suggestion?.coolingModelKw ?? null
+      recommended_precision_ac_model_kw: session.suggestion?.coolingModelKw ?? null,
+      estimated_bom_cost_rmb: session.suggestion?.estimatedBomCostRmb ?? null
     },
     triggered_risks: session.triggered_risks,
     agent_silent_event: {
@@ -634,17 +724,22 @@ export function postSessionOverride(request: OverrideRequest) {
   return response(session, data);
 }
 
-export function getSessionExport(params: {
+export interface ExportGateOptions {
   session_id: string;
   payment_mode?: "simulate_99_rmb" | "credit" | "free_preview";
   approved?: boolean;
-}) {
-  if (!params.session_id) throw new ApiValidationError("session_id is required.");
-  const session = loadOrCreateSession(params.session_id);
-  const paymentMode = params.payment_mode ?? "simulate_99_rmb";
-  const approved = params.approved ?? false;
+}
 
-  if (paymentMode === "simulate_99_rmb" && !approved) {
+export function getSessionExport(params: ExportGateOptions, user: PublicUser | null = null) {
+  if (!params.session_id) throw new ApiValidationError("session_id is required.");
+  const session = loadOrCreateSession(params.session_id, null, user);
+  const paymentMode = params.payment_mode ?? "credit";
+  const approved = params.approved ?? false;
+  const isPreview = paymentMode === "free_preview";
+  const creditsBalance = user?.export_credits ?? null;
+  const adminBypass = !user || user.role === "admin";
+
+  if (!isPreview && !approved) {
     return {
       status: 402,
       body: {
@@ -658,12 +753,15 @@ export function getSessionExport(params: {
           retryable: true
         },
         billing_check: {
-          mode: "simulate_99_rmb",
+          mode: "credit",
           amount_rmb: 99,
           currency: "CNY",
           status: "payment_required",
+          credits_required: 1,
+          credits_balance: creditsBalance,
+          admin_bypass: adminBypass,
           actions: [
-            { id: "pay_99_rmb", label: "继续整理正式稿" },
+            { id: "pay_99_rmb", label: "确认生成正式稿" },
             { id: "free_preview", label: "先看预览稿" },
             { id: "cancel", label: "暂时不用" }
           ]
@@ -672,9 +770,48 @@ export function getSessionExport(params: {
     };
   }
 
-  const isPreview = paymentMode === "free_preview";
+  if (!isPreview && !adminBypass && user && user.export_credits < 1) {
+    return {
+      status: 402,
+      body: {
+        ok: false,
+        session_id: session.session_id,
+        state_version: session.state_version,
+        server_time: now(),
+        error: {
+          code: "NO_CREDITS",
+          message: "导出额度不足，请先兑换激活码。",
+          retryable: true
+        },
+        billing_check: {
+          mode: "credit",
+          amount_rmb: 99,
+          currency: "CNY",
+          status: "no_credits",
+          credits_required: 1,
+          credits_balance: user.export_credits,
+          admin_bypass: false,
+          actions: [
+            { id: "redeem_code", label: "兑换激活码" },
+            { id: "free_preview", label: "先看预览稿" },
+            { id: "cancel", label: "暂时不用" }
+          ]
+        }
+      }
+    };
+  }
+
+  let creditsAfter = creditsBalance;
+  let transactionId = `intent_${Date.now()}`;
+  if (!isPreview && !adminBypass && user) {
+    creditsAfter = debitExportCredit(user.user_id, session.session_id);
+    transactionId = `credit_${Date.now()}`;
+  }
+
   session.payment_willingness_99_rmb = isPreview ? "maybe_preview_first" : true;
-  session.export_status = "exported";
+  if (!isPreview) {
+    session.export_status = "exported";
+  }
   session.export_payload_stale = false;
   session.state_version += 1;
   session.updated_at = now();
@@ -682,7 +819,9 @@ export function getSessionExport(params: {
   const exportPayload = buildExportPayload(session, project, {
     export_type: isPreview ? "preview_pdf" : "docx_requirement_sheet"
   });
-  const renderedDocument = isPreview ? null : renderExportDocx(exportPayload);
+  const renderedDocument = isPreview
+    ? renderExportPreviewPdf(exportPayload)
+    : renderExportDocx(exportPayload);
   saveSession(session);
 
   const data: ExportResponseData = {
@@ -695,11 +834,12 @@ export function getSessionExport(params: {
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
     },
     billing_check: {
-      mode: paymentMode,
+      mode: isPreview ? "free_preview" : "credit",
       amount_rmb: isPreview ? 0 : 99,
       currency: "CNY",
       status: isPreview ? "free_preview" : "approved",
-      transaction_id: `intent_${Date.now()}`
+      credits_balance: creditsAfter,
+      transaction_id: transactionId
     },
     included_chapters: exportPayload.chapter_plan.map((chapter) => chapter.title),
     export_payload: exportPayload,
@@ -721,10 +861,13 @@ export function getSessionExport(params: {
   };
 }
 
-export function getSessionSnapshot(sessionId: string) {
+export function getSessionSnapshot(sessionId: string, user: PublicUser | null = null) {
   const session = sessions.get(sessionId) ?? loadSession(sessionId);
   if (!session) {
     throw sessionNotFoundError();
+  }
+  if (!canAccessSession(session, user)) {
+    throw forbiddenError();
   }
   if (reconcileDerivedSessionState(session)) {
     saveSession(session);
@@ -746,6 +889,8 @@ export function getSessionSnapshot(sessionId: string) {
 export function getSessionCount() {
   return countSessions();
 }
+
+export type { SuggestionSummary };
 
 export class ApiValidationError extends Error {
   status = 400;

@@ -1,4 +1,10 @@
 import type { BackendProject, BackendSession, DashboardField, RiskFlag, SuggestionSummary } from "./types.js";
+import {
+  ESTIMATE_DISCLAIMER,
+  evaluateProjectRules,
+  type EngineEvaluation,
+  type EstimateLine
+} from "./rulesEngine.js";
 
 export const EXPORT_PAYLOAD_VERSION = "v1";
 export const EXPORT_TEMPLATE_VERSION = "2026.05";
@@ -184,6 +190,18 @@ export interface ExportPayloadValidation {
   }>;
 }
 
+export interface ExportInternalEstimate {
+  status: "confirmed" | "provisional" | "blocked";
+  lines: EstimateLine[];
+  equipment_subtotal_rmb: number | null;
+  service_subtotal_rmb: number | null;
+  total_rmb: number | null;
+  low_rmb: number | null;
+  high_rmb: number | null;
+  budget_floor_rmb: number | null;
+  disclaimer: string;
+}
+
 export interface ExportPayloadV1 {
   version: ExportPayloadVersion;
   session_id: string;
@@ -202,6 +220,7 @@ export interface ExportPayloadV1 {
   risk_flags: ExportRiskFlag[];
   forced_document_injections: ForcedDocumentInjection[];
   bom: ExportBom;
+  internal_estimate: ExportInternalEstimate;
   scope: ExportScope;
   commercial: ExportCommercial;
   field_metadata: ExportFieldSnapshot[];
@@ -231,10 +250,6 @@ const fieldOrder = [
 
 function now() {
   return new Date().toISOString();
-}
-
-function round2(value: number) {
-  return Math.round(value * 100) / 100;
 }
 
 function readValue(session: BackendSession, code: string) {
@@ -379,34 +394,25 @@ function redundancyFactor(mode: ExportRedundancyMode) {
 
 function buildCalculationOutputs(
   session: BackendSession,
+  evaluation: EngineEvaluation,
   redundancy_mode: ExportRedundancyMode,
   cooling_redundancy: ExportRedundancyMode
 ): ExportCalculationOutputs {
   const rackCount = readNumber(session, "rack_count");
-  const roomArea = readNumber(session, "room_area_m2");
   const avgPower = readNumber(session, "avg_power_per_rack_kw") ?? (rackCount ? 3 : null);
-  const totalItLoad = rackCount && avgPower ? round2(rackCount * avgPower) : null;
-  const factor = redundancyFactor(redundancy_mode) ?? 1.25;
-  const requiredUpsRaw = totalItLoad ? round2(totalItLoad * factor) : null;
-  const roomThermalDensity = roomArea ? 0.35 : null;
-  const roomThermalLoad = roomArea && roomThermalDensity ? round2(roomArea * roomThermalDensity) : null;
-  const coolingSafety = totalItLoad || roomThermalLoad ? 1.15 : null;
-  const requiredCoolingRaw =
-    coolingSafety && (totalItLoad || roomThermalLoad)
-      ? round2(Math.max(totalItLoad ?? 0, roomThermalLoad ?? 0) * coolingSafety)
-      : null;
+  const factor = evaluation.ups.redundancy_factor ?? redundancyFactor(redundancy_mode) ?? 1.25;
 
   return {
     avg_power_per_rack_kw: avgPower,
-    total_it_load_kw: totalItLoad,
+    total_it_load_kw: evaluation.ups.total_it_load_kw,
     redundancy_factor: factor,
-    required_ups_capacity_kva_raw: requiredUpsRaw,
-    recommended_ups_capacity_kva: session.suggestion?.upsCapacityKva ?? requiredUpsRaw,
-    room_thermal_density_kw_per_m2: roomThermalDensity,
-    room_thermal_load_kw: roomThermalLoad,
-    cooling_safety_margin_factor: coolingSafety,
-    required_cooling_capacity_kw_raw: requiredCoolingRaw,
-    recommended_precision_ac_model_kw: session.suggestion?.coolingModelKw ?? requiredCoolingRaw,
+    required_ups_capacity_kva_raw: evaluation.ups.required_ups_capacity_kva_raw,
+    recommended_ups_capacity_kva: evaluation.ups.recommended_ups_capacity_kva,
+    room_thermal_density_kw_per_m2: evaluation.cooling.room_thermal_density_kw_per_m2,
+    room_thermal_load_kw: evaluation.cooling.room_thermal_load_kw,
+    cooling_safety_margin_factor: evaluation.cooling.cooling_safety_margin_factor,
+    required_cooling_capacity_kw_raw: evaluation.cooling.required_cooling_capacity_kw_raw,
+    recommended_precision_ac_model_kw: evaluation.cooling.recommended_precision_ac_model_kw,
     cooling_redundancy
   };
 }
@@ -479,13 +485,15 @@ function bomLine(
 function buildBom(
   session: BackendSession,
   calculation_outputs: ExportCalculationOutputs,
-  scope: ExportScope
+  scope: ExportScope,
+  evaluation: EngineEvaluation
 ): ExportBom {
   const recommendedUps = calculation_outputs.recommended_ups_capacity_kva;
   const coolingModel = calculation_outputs.recommended_precision_ac_model_kw;
   const rackCount = readNumber(session, "rack_count");
   const backupMinutes = readNumber(session, "ups_backup_time_minutes");
-  const coolingQuantity = calculation_outputs.cooling_redundancy === "N+1" ? 2 : 1;
+  const coolingQuantity =
+    evaluation.cooling.total_unit_count ?? (calculation_outputs.cooling_redundancy === "N+1" ? 2 : 1);
   const suggestion = session.suggestion as SuggestionSummary | null;
 
   return {
@@ -535,9 +543,11 @@ function buildBom(
             "battery_bank",
             "battery",
             "UPS Battery Bank",
-            "电池规格待深化",
-            "待深化",
-            "组",
+            evaluation.battery.battery_count
+              ? `${evaluation.battery.battery_spec}，约 ${evaluation.battery.string_count} 串 ${evaluation.battery.battery_count} 只`
+              : "电池规格待深化",
+            evaluation.battery.battery_count ?? "待深化",
+            evaluation.battery.battery_count ? "只" : "组",
             `后备时间按 ${backupMinutes ?? suggestion?.batteryRuntimeMinutes ?? "待确认"} 分钟口径记录，需结合UPS品牌、电池规格和放电曲线复核`
           )
         ]
@@ -842,7 +852,8 @@ export function buildExportPayload(
   const coolingRedundancy = canonicalRedundancy(
     readString(session, "cooling_redundancy") ?? session.suggestion?.coolingRedundancy ?? null
   );
-  const calculationOutputs = buildCalculationOutputs(session, redundancyMode, coolingRedundancy);
+  const evaluation = evaluateProjectRules(session.dashboard_fields);
+  const calculationOutputs = buildCalculationOutputs(session, evaluation, redundancyMode, coolingRedundancy);
   const riskFlags = buildRiskFlags(session.triggered_risks);
   const forcedDocumentInjections = buildForcedDocumentInjections(riskFlags);
   const scope = buildScope(session, calculationOutputs, riskFlags);
@@ -876,7 +887,18 @@ export function buildExportPayload(
     calculation_outputs: calculationOutputs,
     risk_flags: riskFlags,
     forced_document_injections: forcedDocumentInjections,
-    bom: buildBom(session, calculationOutputs, scope),
+    bom: buildBom(session, calculationOutputs, scope, evaluation),
+    internal_estimate: {
+      status: evaluation.bom_estimate.status,
+      lines: evaluation.bom_estimate.lines,
+      equipment_subtotal_rmb: evaluation.bom_estimate.equipment_subtotal_rmb,
+      service_subtotal_rmb: evaluation.bom_estimate.service_subtotal_rmb,
+      total_rmb: evaluation.bom_estimate.total_rmb,
+      low_rmb: evaluation.bom_estimate.low_rmb,
+      high_rmb: evaluation.bom_estimate.high_rmb,
+      budget_floor_rmb: evaluation.bom_estimate.budget_floor_rmb,
+      disclaimer: ESTIMATE_DISCLAIMER
+    },
     scope,
     commercial: buildCommercial(),
     field_metadata: fieldMetadata,

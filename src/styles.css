@@ -1732,3 +1732,332 @@ button {
     max-width: 100%;
   }
 }
+
+/* ---- Auth screen ---- */
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(43, 108, 207, 0.1), transparent 38%),
+    radial-gradient(circle at 88% 92%, rgba(30, 140, 98, 0.12), transparent 42%), var(--bg);
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(430px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 30px 30px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.auth-card.auth-loading {
+  align-items: center;
+  text-align: center;
+  color: var(--muted);
+  padding: 44px 30px;
+}
+
+.auth-brand {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+}
+
+.auth-brand h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.auth-brand p {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.auth-tabs button {
+  border: 0;
+  background: transparent;
+  border-radius: 7px;
+  padding: 8px 0;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.auth-tabs button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(31, 42, 55, 0.08);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.auth-form input {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px 12px;
+  background: var(--surface-soft);
+  outline: none;
+}
+
+.auth-form input:focus {
+  border-color: var(--green);
+  background: var(--surface);
+}
+
+.auth-notice {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--red);
+  background: var(--red-soft);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.auth-submit {
+  justify-content: center;
+}
+
+.auth-foot {
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- Sidebar user chip ---- */
+
+.user-chip {
+  margin-top: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.user-chip-head {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  color: var(--text);
+}
+
+.user-chip-name {
+  min-width: 0;
+}
+
+.user-chip-name strong {
+  display: block;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-chip-name small {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.user-chip-credits {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  background: var(--green-soft);
+  color: var(--green);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.user-chip-credits b {
+  font-weight: 800;
+}
+
+.user-chip-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.user-chip-actions button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  border-radius: 8px;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.user-chip-actions button:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+/* ---- Redeem & license ---- */
+
+.redeem-row {
+  display: flex;
+  gap: 9px;
+  margin: 14px 0 4px;
+}
+
+.redeem-row input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px 12px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--surface-soft);
+  outline: none;
+}
+
+.redeem-row input:focus {
+  border-color: var(--green);
+  background: var(--surface);
+}
+
+.redeem-notice {
+  font-size: 12.5px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.modal-subnote {
+  font-size: 12px !important;
+  color: var(--muted) !important;
+}
+
+.admin-license .license-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.admin-license .license-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.admin-license .license-form input,
+.admin-license .license-note {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 12.5px;
+  width: 100%;
+  background: var(--surface);
+  outline: none;
+}
+
+.admin-license .license-note {
+  margin-top: 7px;
+}
+
+.license-code {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface-strong);
+  border-radius: 6px;
+  padding: 4px 7px;
+  margin-top: 4px;
+  user-select: all;
+}
+
+/* ---- Calculation & estimate display ---- */
+
+.calc-status-chip {
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 4px 11px;
+  white-space: nowrap;
+}
+
+.calc-status-chip.calc-confirmed {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.calc-status-chip.calc-provisional {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.calc-status-chip.calc-blocked {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.estimate-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--blue-soft);
+  color: var(--blue);
+  border-radius: 10px;
+  padding: 10px 13px;
+  margin-top: 11px;
+}
+
+.estimate-banner strong {
+  display: block;
+  font-size: 13.5px;
+}
+
+.estimate-banner small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: #4d6f9c;
+  line-height: 1.5;
+}

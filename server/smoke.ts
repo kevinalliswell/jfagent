@@ -9,6 +9,11 @@ const smokeRoot = mkdtempSync(resolve(tmpdir(), "jfagent-smoke-"));
 process.env.JFAGENT_DATA_DIR = resolve(smokeRoot, "data");
 process.env.JFAGENT_OUTPUT_DIR = resolve(smokeRoot, "output/doc");
 process.env.JFAGENT_UPLOAD_DIR = resolve(smokeRoot, "knowledge/uploads");
+// Legacy flow sections run in single-operator local mode; the dedicated auth
+// section flips AUTH_DISABLED off to exercise the full account/credit flow.
+process.env.AUTH_DISABLED = "1";
+delete process.env.ADMIN_EMAIL;
+delete process.env.ADMIN_PASSWORD;
 
 const { createApiServer } = await import("./http.js");
 const { saveSession } = await import("./persistence.js");
@@ -187,7 +192,7 @@ try {
   assert.equal(runtimeStatusData.agent.provider_name, "openai_compatible");
   assert.equal(runtimeStatusData.agent.base_url, "https://api.openai.com/v1");
   assert.equal(runtimeStatusData.agent.model, "gpt-4o-mini");
-  assert.equal(runtimeStatusData.agent.timeout_ms, 12000);
+  assert.equal(runtimeStatusData.agent.timeout_ms, 25000);
   assert.equal(runtimeStatusData.storage.database_path, resolve(smokeRoot, "data", "jfagent.sqlite"));
   assert.equal(runtimeStatusData.storage.upload_dir, resolve(smokeRoot, "knowledge/uploads"));
   assert.equal(runtimeStatusData.storage.output_dir, resolve(smokeRoot, "output/doc"));
@@ -400,12 +405,21 @@ try {
     "export_status",
     "fsm_state",
     "knowledge_hits",
+    "messages",
     "project_id",
     "session_id",
     "state_version",
     "suggestion",
     "triggered_risks"
   ]);
+  const snapshotMessages = (
+    sessionSnapshotData.session as unknown as {
+      messages: Array<{ sender: string; text: string }>;
+    }
+  ).messages;
+  assert.ok(snapshotMessages.length >= 2);
+  assert.equal(snapshotMessages[0].sender, "user");
+  assert.ok(snapshotMessages.some((message) => message.sender === "ai"));
   assert.deepEqual(Object.keys(sessionSnapshotData.project ?? {}).sort(), [
     "project_id",
     "project_name",
@@ -547,21 +561,31 @@ try {
   assert.equal(preview.status, 200);
   assert.equal((preview.body.data as { export_status: string }).export_status, "preview_ready");
   const previewData = preview.body.data as {
+    asset: { mime_type: string; download_url: string };
     export_payload: {
       version: string;
       project_name: string;
       commercial: { pricing_mode: string };
+      internal_estimate: { total_rmb: number | null; lines: unknown[] };
       chapter_plan: Array<{ id: string }>;
     };
   };
   assert.equal(previewData.export_payload.version, "v1");
   assert.equal(previewData.export_payload.project_name, "医院老机房改造一期");
   assert.equal(previewData.export_payload.commercial.pricing_mode, "manual_placeholder");
+  assert.ok(previewData.export_payload.internal_estimate.lines.length > 0);
+  assert.ok((previewData.export_payload.internal_estimate.total_rmb ?? 0) > 100000);
   assert.ok(
     previewData.export_payload.chapter_plan.some(
       (chapter) => chapter.id === "CHAPTER_7_COMMERCIAL_PLACEHOLDER_APPENDIX"
     )
   );
+  assert.equal(previewData.asset.mime_type, "application/pdf");
+  if (previewData.asset.download_url.startsWith("/api/assets/")) {
+    const previewPdf = await requestBytes(previewData.asset.download_url);
+    assert.equal(previewPdf.status, 200);
+    assert.equal(previewPdf.body.subarray(0, 4).toString("utf8"), "%PDF");
+  }
 
   const updatedProject = await requestJson(`/api/projects/${projectId}`);
   assert.equal(updatedProject.status, 200);
@@ -869,10 +893,8 @@ try {
         fallback_reason: string | null;
       };
     };
-    assert.equal(
-      fallbackChatData.ai_response,
-      "已收到项目线索，当前已经形成初步规模口径。接下来建议补充预算、品牌偏好或交付时间。"
-    );
+    assert.ok(fallbackChatData.ai_response.includes("按当前口径初步测算"));
+    assert.ok(fallbackChatData.ai_response.includes("UPS 建议 20kVA"));
     assert.equal(fallbackChatData.agent_runtime.response_mode, "fallback");
     assert.equal(fallbackChatData.agent_runtime.llm_configured, true);
     assert.equal(fallbackChatData.agent_runtime.fallback_reason, "invalid_json");
@@ -881,6 +903,261 @@ try {
     process.env.OPENAI_API_KEY = previousApiKey;
     process.env.OPENAI_BASE_URL = previousBaseUrl;
     process.env.OPENAI_MODEL = previousModel;
+  }
+
+  // ---- Account, credit, and license flow (auth enabled) ----
+  const previousAuthDisabled = process.env.AUTH_DISABLED;
+  process.env.AUTH_DISABLED = "";
+  process.env.FREE_EXPORT_CREDITS = "1";
+  try {
+    const unauthorized = await requestJson("/api/projects");
+    assert.equal(unauthorized.status, 401);
+    assert.equal((unauthorized.body.error as { code: string }).code, "UNAUTHORIZED");
+
+    const authMode = await requestJson("/api/auth/mode");
+    assert.equal(authMode.status, 200);
+    assert.equal((authMode.body.data as { auth_required: boolean }).auth_required, true);
+
+    const adminRegister = await requestJson("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "admin@smoke.test",
+        password: "admin-pass-123",
+        display_name: "烟测管理员"
+      })
+    });
+    assert.equal(adminRegister.status, 200);
+    const adminRegisterData = adminRegister.body.data as {
+      token: string;
+      user: { role: string; export_credits: number };
+    };
+    assert.equal(adminRegisterData.user.role, "admin");
+    const adminAuth = { authorization: `Bearer ${adminRegisterData.token}` };
+
+    const userRegister = await requestJson("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "seller@smoke.test",
+        password: "seller-pass-123",
+        display_name: "售前一号"
+      })
+    });
+    assert.equal(userRegister.status, 200);
+    const userRegisterData = userRegister.body.data as {
+      token: string;
+      user: { user_id: string; role: string; export_credits: number };
+    };
+    assert.equal(userRegisterData.user.role, "user");
+    assert.equal(userRegisterData.user.export_credits, 1);
+    const userAuth = { authorization: `Bearer ${userRegisterData.token}` };
+
+    const weakPassword = await requestJson("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: "weak@smoke.test", password: "123" })
+    });
+    assert.equal(weakPassword.status, 400);
+
+    const badLogin = await requestJson("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "seller@smoke.test", password: "wrong-password" })
+    });
+    assert.equal(badLogin.status, 401);
+
+    const goodLogin = await requestJson("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "seller@smoke.test", password: "seller-pass-123" })
+    });
+    assert.equal(goodLogin.status, 200);
+
+    const me = await requestJson("/api/auth/me", { headers: userAuth });
+    assert.equal(me.status, 200);
+    assert.equal((me.body.data as { user: { email: string } }).user.email, "seller@smoke.test");
+
+    const userProject = await requestJson("/api/projects", {
+      method: "POST",
+      headers: userAuth,
+      body: JSON.stringify({ name: "售前一号的项目" })
+    });
+    assert.equal(userProject.status, 200);
+    const userProjectId = (userProject.body.data as { project: { project_id: string } }).project.project_id;
+
+    const userChat = await requestJson("/api/session/chat", {
+      method: "POST",
+      headers: userAuth,
+      body: JSON.stringify({
+        session_id: "sess_auth_user",
+        project_id: userProjectId,
+        message_type: "text",
+        content: "某物流公司新建机房，60平，1楼，12个机柜，UPS后备30分钟，预算100万"
+      })
+    });
+    assert.equal(userChat.status, 200);
+    const userChatData = userChat.body.data as {
+      suggestion: { estimatedBomCostRmb: number | null; upsCapacityKva: number | null } | null;
+      state: { export_status: string };
+    };
+    assert.equal(userChatData.state.export_status, "ready");
+    assert.ok((userChatData.suggestion?.estimatedBomCostRmb ?? 0) > 100000);
+    assert.equal(userChatData.suggestion?.upsCapacityKva, 60);
+
+    // Cross-user isolation: the admin-created legacy projects stay invisible.
+    const userProjects = await requestJson("/api/projects", { headers: userAuth });
+    const userProjectList = (userProjects.body.data as { projects: Array<{ project_id: string }> }).projects;
+    assert.ok(userProjectList.some((project) => project.project_id === userProjectId));
+    assert.ok(!userProjectList.some((project) => project.project_id === projectId));
+
+    const foreignProject = await requestJson(`/api/projects/${projectId}`, { headers: userAuth });
+    assert.equal(foreignProject.status, 404);
+
+    const foreignSnapshot = await requestJson("/api/session?session_id=sess_smoke", {
+      headers: userAuth
+    });
+    assert.equal(foreignSnapshot.status, 403);
+
+    const adminSnapshot = await requestJson("/api/session?session_id=sess_auth_user", {
+      headers: adminAuth
+    });
+    assert.equal(adminSnapshot.status, 200);
+
+    // Credit gate: confirmation first, then the single free credit, then 402.
+    const gate = await requestJson("/api/session/export?session_id=sess_auth_user", {
+      headers: userAuth
+    });
+    assert.equal(gate.status, 402);
+    const gateBilling = (gate.body as { billing_check: { status: string; credits_balance: number } })
+      .billing_check;
+    assert.equal(gateBilling.status, "payment_required");
+    assert.equal(gateBilling.credits_balance, 1);
+
+    const firstExport = await requestJson("/api/session/export?session_id=sess_auth_user&approved=true", {
+      headers: userAuth
+    });
+    assert.equal(firstExport.status, 200);
+    const firstExportData = firstExport.body.data as {
+      billing_check: { mode: string; credits_balance: number | null };
+      asset: { mime_type: string };
+    };
+    assert.equal(firstExportData.billing_check.mode, "credit");
+    assert.equal(firstExportData.billing_check.credits_balance, 0);
+    assert.equal(
+      firstExportData.asset.mime_type,
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+
+    const exhausted = await requestJson("/api/session/export?session_id=sess_auth_user&approved=true", {
+      headers: userAuth
+    });
+    assert.equal(exhausted.status, 402);
+    assert.equal((exhausted.body.error as { code: string }).code, "NO_CREDITS");
+
+    const previewStillFree = await requestJson(
+      "/api/session/export?session_id=sess_auth_user&payment_mode=free_preview",
+      { headers: userAuth }
+    );
+    assert.equal(previewStillFree.status, 200);
+
+    const badRedeem = await requestJson("/api/auth/redeem", {
+      method: "POST",
+      headers: userAuth,
+      body: JSON.stringify({ code: "JF-XXXXX-XXXXX" })
+    });
+    assert.equal(badRedeem.status, 404);
+
+    const forbiddenLicense = await requestJson("/api/admin/licenses", {
+      method: "POST",
+      headers: userAuth,
+      body: JSON.stringify({ count: 1, credits: 5 })
+    });
+    assert.equal(forbiddenLicense.status, 403);
+
+    const licenseCreate = await requestJson("/api/admin/licenses", {
+      method: "POST",
+      headers: adminAuth,
+      body: JSON.stringify({ count: 2, credits: 5, note: "smoke 渠道包" })
+    });
+    assert.equal(licenseCreate.status, 200);
+    const licenses = (licenseCreate.body.data as { licenses: Array<{ code: string; credits: number }> })
+      .licenses;
+    assert.equal(licenses.length, 2);
+    assert.ok(licenses[0].code.startsWith("JF-"));
+
+    const redeem = await requestJson("/api/auth/redeem", {
+      method: "POST",
+      headers: userAuth,
+      body: JSON.stringify({ code: licenses[0].code })
+    });
+    assert.equal(redeem.status, 200);
+    const redeemData = redeem.body.data as {
+      credits_added: number;
+      balance_after: number;
+      user: { export_credits: number };
+    };
+    assert.equal(redeemData.credits_added, 5);
+    assert.equal(redeemData.balance_after, 5);
+    assert.equal(redeemData.user.export_credits, 5);
+
+    const reusedRedeem = await requestJson("/api/auth/redeem", {
+      method: "POST",
+      headers: userAuth,
+      body: JSON.stringify({ code: licenses[0].code })
+    });
+    assert.equal(reusedRedeem.status, 409);
+
+    const paidExport = await requestJson("/api/session/export?session_id=sess_auth_user&approved=true", {
+      headers: userAuth
+    });
+    assert.equal(paidExport.status, 200);
+    assert.equal(
+      (paidExport.body.data as { billing_check: { credits_balance: number | null } }).billing_check
+        .credits_balance,
+      4
+    );
+
+    const grant = await requestJson("/api/admin/users/grant", {
+      method: "POST",
+      headers: adminAuth,
+      body: JSON.stringify({ user_id: userRegisterData.user.user_id, credits: 3 })
+    });
+    assert.equal(grant.status, 200);
+    assert.equal((grant.body.data as { balance_after: number }).balance_after, 7);
+
+    const adminUsers = await requestJson("/api/admin/users", { headers: adminAuth });
+    assert.equal(adminUsers.status, 200);
+    const adminUserList = (adminUsers.body.data as { users: Array<{ email: string }> }).users;
+    assert.ok(adminUserList.some((entry) => entry.email === "admin@smoke.test"));
+    assert.ok(adminUserList.some((entry) => entry.email === "seller@smoke.test"));
+
+    const adminLicenses = await requestJson("/api/admin/licenses", { headers: adminAuth });
+    assert.equal(adminLicenses.status, 200);
+    const adminLicenseList = (
+      adminLicenses.body.data as { licenses: Array<{ code: string; status: string }> }
+    ).licenses;
+    assert.equal(adminLicenseList.find((entry) => entry.code === licenses[0].code)?.status, "redeemed");
+
+    // Admin exports bypass the credit debit but still pass the approval gate.
+    const adminProject = await requestJson("/api/projects", {
+      method: "POST",
+      headers: adminAuth,
+      body: JSON.stringify({ name: "管理员验证项目" })
+    });
+    const adminProjectId = (adminProject.body.data as { project: { project_id: string } }).project.project_id;
+    await requestJson("/api/session/chat", {
+      method: "POST",
+      headers: adminAuth,
+      body: JSON.stringify({
+        session_id: "sess_auth_admin",
+        project_id: adminProjectId,
+        message_type: "text",
+        content: "某园区机房，40平，1楼，8个机柜，UPS后备15分钟"
+      })
+    });
+    const adminExport = await requestJson("/api/session/export?session_id=sess_auth_admin&approved=true", {
+      headers: adminAuth
+    });
+    assert.equal(adminExport.status, 200);
+  } finally {
+    process.env.AUTH_DISABLED = previousAuthDisabled;
+    delete process.env.FREE_EXPORT_CREDITS;
   }
 
   console.log("API smoke test passed.");
